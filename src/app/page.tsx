@@ -1,9 +1,8 @@
-// src/app/page.tsx
+// src/app/page.tsx - Without TopBar
 'use client';
 
 import { useState } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
-import TopBar from '@/components/layout/TopBar';
 import Dashboard from '@/components/dashboard/Dashboard';
 import Profile from '@/components/dashboard/Profile';
 import Devices from '@/components/dashboard/Devices';
@@ -17,21 +16,21 @@ import { alerts } from '@/lib/mock-data';
 export default function MainDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [searchQuery, setSearchQuery] = useState('');
   const [userRole] = useState('admin');
 
   const styles = {
     container: {
       display: 'flex',
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)',
-      fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif'
+      backgroundColor: '#f9fafb',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     },
     mainContent: {
       flex: 1,
       marginLeft: isSidebarOpen ? '280px' : '0',
       transition: 'margin-left 0.3s ease',
       minHeight: '100vh',
+      backgroundColor: '#ffffff',
     }
   };
 
@@ -70,15 +69,6 @@ export default function MainDashboard() {
 
       <div style={styles.mainContent}>
         <div style={{ padding: '30px', minHeight: '100vh' }}>
-          <TopBar
-            activeSection={activeSection}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-            isSidebarOpen={isSidebarOpen}
-            alertCount={activeAlertsCount}
-          />
-
           {renderSection()}
         </div>
       </div>

@@ -1,7 +1,7 @@
-// src/components/layout/StatsCard.tsx - Enhanced version
+// src/components/layout/StatsCard.tsx - FIXED
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 
 interface StatsCardProps {
   title: string;
@@ -18,27 +18,38 @@ export default function StatsCard({
   value,
   subtitle,
   icon,
-  iconColor = '#0ea5e9',
-  iconBgColor = 'rgba(14, 165, 233, 0.1)',
+  iconColor = '#3b82f6',
+  iconBgColor = '#eff6ff',
   trend = 'neutral'
 }: StatsCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
+  
   const trendColors = {
-    positive: { bg: 'rgba(16, 185, 129, 0.1)', text: '#10b981', icon: '↑' },
-    negative: { bg: 'rgba(239, 68, 68, 0.1)', text: '#ef4444', icon: '↓' },
-    neutral: { bg: 'rgba(148, 163, 184, 0.1)', text: '#94a3b8', icon: '' }
+    positive: { bg: '#dcfce7', text: '#16a34a', icon: '↑' },
+    negative: { bg: '#fee2e2', text: '#dc2626', icon: '↓' },
+    neutral: { bg: '#f3f4f6', text: '#6b7280', icon: '' }
   };
 
   const trendConfig = trendColors[trend];
 
   return (
-    <div style={{
-      background: 'rgba(30, 41, 59, 0.7)',
-      borderRadius: '16px',
-      padding: '24px',
-      transition: 'transform 0.2s, box-shadow 0.2s',
-      cursor: 'pointer',
-      height: '100%'
-    }}>
+    <div 
+      style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '24px',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        cursor: 'pointer',
+        height: '100%',
+        border: '1px solid #e5e7eb',
+        boxShadow: isHovered 
+          ? '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+          : '0 1px 3px rgba(0, 0, 0, 0.05)',
+        transform: isHovered ? 'translateY(-2px)' : 'none'
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div style={{ 
         display: 'flex', 
         alignItems: 'center', 
@@ -47,9 +58,9 @@ export default function StatsCard({
       }}>
         {icon && (
           <div style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '14px',
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
             background: iconBgColor,
             display: 'flex',
             alignItems: 'center',
@@ -62,16 +73,16 @@ export default function StatsCard({
         <div>
           <h3 style={{ 
             fontSize: '14px', 
-            color: '#94a3b8', 
-            margin: '0 0 4px 0',
+            color: '#6b7280', 
+            margin: '0 0 8px 0',
             fontWeight: '500'
           }}>
             {title}
           </h3>
           <p style={{ 
             fontSize: '28px', 
-            fontWeight: '800', 
-            color: iconColor, 
+            fontWeight: '700', 
+            color: '#111827', 
             margin: 0 
           }}>
             {value}
@@ -80,12 +91,16 @@ export default function StatsCard({
       </div>
       {subtitle && (
         <div style={{
-          fontSize: '12px',
+          fontSize: '13px',
           color: trendConfig.text,
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
-          fontWeight: '600'
+          fontWeight: '600',
+          background: trendConfig.bg,
+          padding: '4px 8px',
+          borderRadius: '6px',
+          width: 'fit-content'
         }}>
           {trendConfig.icon} {subtitle}
         </div>

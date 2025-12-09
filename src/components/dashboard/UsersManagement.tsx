@@ -1,7 +1,7 @@
 // src/components/dashboard/UsersManagement.tsx
 'use client';
 
-import { UserPlus, Search, MoreVertical, Mail, Phone, Shield } from 'lucide-react';
+import { UserPlus, Search, MoreVertical, Mail, Shield } from 'lucide-react';
 import { users } from '@/lib/mock-data';
 import { useState } from 'react';
 
@@ -37,46 +37,20 @@ export default function UsersManagement() {
   };
 
   return (
-    <div style={{ 
-      background: 'rgba(30, 41, 59, 0.7)', 
-      borderRadius: '16px', 
-      padding: '24px' 
-    }}>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '24px' 
-      }}>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h2 style={{ 
-            fontSize: '20px', 
-            fontWeight: '700', 
-            color: '#e2e8f0', 
-            margin: '0 0 4px 0' 
-          }}>
+          <h2 className="text-2xl font-bold text-gray-800">
             Users Management
           </h2>
-          <div style={{ fontSize: '14px', color: '#94a3b8' }}>
+          <p className="text-gray-600">
             Manage system users and permissions
-          </div>
+          </p>
         </div>
         <button
           onClick={handleAddUser}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontWeight: '600',
-            fontSize: '14px'
-          }}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
         >
           <UserPlus size={18} />
           Add User
@@ -84,176 +58,114 @@ export default function UsersManagement() {
       </div>
 
       {/* Search Bar */}
-      <div style={{ 
-        position: 'relative', 
-        marginBottom: '24px' 
-      }}>
-        <Search size={18} style={{
-          position: 'absolute',
-          left: '16px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          color: '#64748b'
-        }} />
+      <div className="relative mb-6">
+        <Search size={18} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" />
         <input
           type="text"
           placeholder="Search users by name, email, or role..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '12px 12px 12px 44px',
-            background: 'rgba(15, 23, 42, 0.7)',
-            border: '1px solid rgba(71, 85, 105, 0.5)',
-            borderRadius: '12px',
-            color: '#e2e8f0',
-            fontSize: '14px',
-            outline: 'none'
-          }}
+          className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800"
         />
       </div>
 
       {/* Users Table */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
+      <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <table className="w-full">
+          <thead className="bg-gray-50">
             <tr>
-              <th style={{ 
-                textAlign: 'left', 
-                padding: '12px 16px', 
-                color: '#94a3b8', 
-                fontSize: '12px',
-                fontWeight: '600',
-                borderBottom: '1px solid rgba(71, 85, 105, 0.3)'
-              }}>
+              <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 USER
               </th>
-              <th style={{ 
-                textAlign: 'left', 
-                padding: '12px 16px', 
-                color: '#94a3b8', 
-                fontSize: '12px',
-                fontWeight: '600',
-                borderBottom: '1px solid rgba(71, 85, 105, 0.3)'
-              }}>
+              <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 ROLE
               </th>
-              <th style={{ 
-                textAlign: 'left', 
-                padding: '12px 16px', 
-                color: '#94a3b8', 
-                fontSize: '12px',
-                fontWeight: '600',
-                borderBottom: '1px solid rgba(71, 85, 105, 0.3)'
-              }}>
+              <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 DEVICES
               </th>
-              <th style={{ 
-                textAlign: 'left', 
-                padding: '12px 16px', 
-                color: '#94a3b8', 
-                fontSize: '12px',
-                fontWeight: '600',
-                borderBottom: '1px solid rgba(71, 85, 105, 0.3)'
-              }}>
+              <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 STATUS
               </th>
-              <th style={{ 
-                textAlign: 'left', 
-                padding: '12px 16px', 
-                color: '#94a3b8', 
-                fontSize: '12px',
-                fontWeight: '600',
-                borderBottom: '1px solid rgba(71, 85, 105, 0.3)'
-              }}>
+              <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 ACTIONS
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-100">
             {filteredUsers.map((user) => (
-              <tr key={user.id} style={{ borderBottom: '1px solid rgba(71, 85, 105, 0.1)' }}>
-                <td style={{ padding: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'white',
-                      fontWeight: '700',
-                      fontSize: '16px'
-                    }}>
+              <tr key={user.id} className="hover:bg-gray-50">
+                <td className="py-4 px-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
                       {user.name.charAt(0)}
                     </div>
                     <div>
-                      <div style={{ color: '#e2e8f0', fontWeight: '600', marginBottom: '2px' }}>
-                        {user.name}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-                        <Mail size={12} color="#94a3b8" />
-                        <span style={{ color: '#94a3b8' }}>{user.email}</span>
+                      <div className="font-medium text-gray-900">{user.name}</div>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Mail size={12} />
+                        {user.email}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td style={{ padding: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Shield size={14} color={
-                      user.role === 'Administrator' ? '#ef4444' :
-                      user.role === 'Operator' ? '#f59e0b' :
-                      '#0ea5e9'
+                <td className="py-4 px-6">
+                  <div className="flex items-center gap-2">
+                    <Shield size={16} className={
+                      user.role === 'Administrator' ? 'text-red-500' :
+                      user.role === 'Operator' ? 'text-amber-500' :
+                      'text-blue-500'
                     } />
-                    <span style={{ color: '#e2e8f0', fontWeight: '500' }}>{user.role}</span>
+                    <span className="font-medium text-gray-800">{user.role}</span>
                   </div>
                 </td>
-                <td style={{ padding: '16px' }}>
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px' 
-                  }}>
-                    <span style={{ color: '#e2e8f0', fontWeight: '700' }}>{user.devices}</span>
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>devices</span>
+                <td className="py-4 px-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-gray-900">{user.devices}</span>
+                    <span className="text-sm text-gray-500">devices</span>
                   </div>
                 </td>
-                <td style={{ padding: '16px' }}>
+                <td className="py-4 px-6">
                   <button
                     onClick={() => toggleUserStatus(user.id)}
-                    style={{
-                      padding: '6px 16px',
-                      background: user.status === 'active' ? 
-                        'rgba(16, 185, 129, 0.1)' : 
-                        'rgba(148, 163, 184, 0.1)',
-                      color: user.status === 'active' ? '#10b981' : '#94a3b8',
-                      border: 'none',
-                      borderRadius: '20px',
-                      cursor: 'pointer',
-                      fontWeight: '600',
-                      fontSize: '12px'
-                    }}
+                    className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      user.status === 'active' 
+                        ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                        : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                    }`}
                   >
                     {user.status === 'active' ? 'Active' : 'Inactive'}
                   </button>
                 </td>
-                <td style={{ padding: '16px' }}>
-                  <button style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    padding: '8px'
-                  }}>
-                    <MoreVertical size={18} />
+                <td className="py-4 px-6">
+                  <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                    <MoreVertical size={18} className="text-gray-500" />
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination/Footer */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mt-6 pt-6 border-t border-gray-200">
+        <p className="text-gray-600 mb-4 sm:mb-0">
+          Showing {filteredUsers.length} of {currentUsers.length} users
+        </p>
+        <div className="flex gap-2">
+          <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium">
+            Previous
+          </button>
+          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+            1
+          </button>
+          <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium">
+            2
+          </button>
+          <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium">
+            Next
+          </button>
+        </div>
       </div>
     </div>
   );
