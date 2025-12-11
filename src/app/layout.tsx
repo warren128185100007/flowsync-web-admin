@@ -1,13 +1,14 @@
-// src/app/layout.tsx
+// src/app/layout.tsx - FIXED
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { Providers } from '@/components/providers'; // Changed to named import
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'FlowSync - Leak Detection Dashboard',
-  description: 'Real-time water leak detection and monitoring system',
+  title: 'FlowSync Admin',
+  description: 'Admin panel for FlowSync Mobile App',
 };
 
 export default function RootLayout({
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {children}
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
