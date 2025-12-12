@@ -9,7 +9,7 @@ import {
 import { useState, useEffect, useCallback, memo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { AdminAuthService } from '@/lib/admin-auth.service';
-import styles from './Sidebar.module.css'; // IMPORT THE CSS MODULE
+import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -391,16 +391,43 @@ export default function Sidebar({
             </button>
           )}
 
-          {/* Logo Section */}
+          {/* Logo Section - UPDATED */}
           <div className={styles.logoSection}>
             <div className={styles.logoContainer}>
               <div className={styles.logoIcon}>
-                <Waves size={24} color="white" className={styles.logoIconInner} />
+                {/* Flowsync Logo - Original Colors */}
+                <div className={styles.logoImageContainer}>
+                  <img
+                    src="/Flowsync.png"
+                    alt="FlowSync"
+                    className={styles.logoImage}
+                    onError={(e) => {
+                      console.error('Logo failed to load');
+                      e.currentTarget.style.display = 'none';
+                      const fallback = document.createElement('div');
+                      fallback.innerHTML = `
+                        <div style="
+                          width: 100%;
+                          height: 100%;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                          color: white;
+                        ">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 2v20M12 2l4 4M12 2l-4 4M12 22l4-4M12 22l-4-4"/>
+                          </svg>
+                        </div>
+                      `;
+                      e.currentTarget.parentElement?.appendChild(fallback);
+                    }}
+                  />
+                </div>
               </div>
               
               {!isCollapsed && (
                 <div className={styles.logoText}>
-                  <h1 className={styles.logoTitle}>FlowSync</h1>
+                  {/* REMOVED: FlowSync title */}
                   <p className={styles.logoSubtitle}>Admin Portal</p>
                 </div>
               )}
@@ -430,8 +457,6 @@ export default function Sidebar({
               })}
             </nav>
           </div>
-
-         
 
           {/* Action Buttons */}
           <div className={styles.actionButtons}>

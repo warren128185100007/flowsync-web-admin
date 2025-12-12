@@ -134,7 +134,7 @@
   transform: scale(1.1);
 }
 
-/* Logo Section */
+/* Logo Section - UPDATED: Bigger logo, no FlowSync text */
 .logoSection {
   margin-bottom: 48px;
 }
@@ -151,50 +151,59 @@
   justify-content: center;
 }
 
+/* Logo Icon - Updated: Much bigger logo */
 .logoIcon {
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
+  width: 80px; /* Much bigger - increased from 64px */
+  height: 80px; /* Much bigger - increased from 64px */
+  min-width: 80px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   transition: all 0.3s ease;
-  box-shadow: 0 8px 32px rgba(14, 165, 233, 0.3);
 }
 
 .container.collapsed .logoIcon {
-  width: 48px;
-  height: 48px;
-  min-width: 48px;
-  border-radius: 12px;
+  width: 64px; /* Much bigger - increased from 56px */
+  height: 64px; /* Much bigger - increased from 56px */
+  min-width: 64px;
 }
 
+/* Remove the gradient animation overlay */
 .logoIcon::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
+  display: none;
+}
+
+/* Logo Image Container - Updated for bigger logo */
+.logoImageContainer {
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.6s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.logoIcon:hover::before {
-  left: 100%;
+/* Logo Image - Original Colors, Bigger */
+.logoImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: none;
 }
 
+/* Hide the old waves icon */
 .logoIconInner {
-  color: white;
+  display: none;
 }
 
 .logoText {
   overflow: hidden;
   transition: opacity 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .container.collapsed .logoText {
@@ -204,22 +213,13 @@
   overflow: hidden;
 }
 
-.logoTitle {
-  font-size: 28px;
-  font-weight: 800;
-  background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin: 0;
-  letter-spacing: -0.5px;
-  white-space: nowrap;
-}
+/* REMOVED: .logoTitle - FlowSync text removed */
 
+/* Updated logo subtitle to match bigger logo */
 .logoSubtitle {
-  font-size: 12px;
+  font-size: 14px; /* Increased from 12px to match bigger logo */
   color: #94a3b8;
-  margin: 6px 0 0 0;
+  margin: 0; /* Removed top margin since FlowSync title is gone */
   font-weight: 500;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -891,6 +891,23 @@
   .container.mobile {
     width: 100%;
     max-width: 320px;
+  }
+  
+  /* Adjust logo size for mobile */
+  .logoIcon {
+    width: 72px;
+    height: 72px;
+    min-width: 72px;
+  }
+  
+  .container.collapsed .logoIcon {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+  }
+  
+  .logoSubtitle {
+    font-size: 13px;
   }
 }
 

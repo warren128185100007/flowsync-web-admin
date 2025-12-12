@@ -27,7 +27,12 @@ import {
   AlertTriangle,
   Smartphone,
   History,
-  Shield as ShieldIcon
+  Shield as ShieldIcon,
+  WifiOff,
+  Wifi,
+  Clock,
+  Home,
+  Activity
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -43,6 +48,7 @@ import {
   ChartOptions
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import RealtimeUserService, { ProcessedUser, WaterFlowData } from '@/lib/realtime-users-service';
 
 // Register Chart.js components
 ChartJS.register(
@@ -72,12 +78,16 @@ const PesoSign = ({ size = 16, color = "currentColor" }) => (
 export default function UsersManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<ProcessedUser | null>(null);
   const [showUserDetails, setShowUserDetails] = useState(false);
-  const [mobileUsers, setMobileUsers] = useState<any[]>([]);
+  const [mobileUsers, setMobileUsers] = useState<ProcessedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'activity' | 'alerts' | 'devices' | 'water-usage' | 'security'>('overview');
   const [showPressureGuide, setShowPressureGuide] = useState(false);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  
+  // Real-time subscription reference
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // Chart options for better design
   const lineChartOptions: ChartOptions<'line'> = {
@@ -244,6 +254,8 @@ export default function UsersManagementPage() {
 
   // Get pressure color based on assessment
   const getPressureColor = (pressureInBar: number) => {
+    if (pressureInBar === 0) return '#64748b'; // Gray for no data
+    
     const pressureInPsi = pressureInBar * 14.5038;
     
     if (pressureInPsi < 10) return '#ef4444';
@@ -254,7 +266,38 @@ export default function UsersManagementPage() {
     return '#ec4899';
   };
 
-  // Sample chart data
+  // Initialize real-time subscription
+  useEffect(() => {
+    // Clean up previous subscription
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+    }
+
+    setLoading(true);
+    
+    // Subscribe to real-time user data
+    unsubscribeRef.current = RealtimeUserService.subscribeToAllUsers((users: ProcessedUser[]) => {
+      setMobileUsers(users);
+      setRealtimeConnected(true);
+      setLoading(false);
+      
+      // Update selected user if it's in the list
+      if (selectedUser) {
+        const updatedSelectedUser = users.find(u => u.id === selectedUser.id);
+        if (updatedSelectedUser) {
+          setSelectedUser(updatedSelectedUser);
+        }
+      }
+    });
+
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
+  }, []); // Only run once on mount
+
+  // Sample chart data (you can replace with real data later)
   const weeklyUsageData = {
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     datasets: [
@@ -295,234 +338,7 @@ export default function UsersManagementPage() {
     ]
   };
 
-  const loadMobileUsers = () => {
-    try {
-      const mockMobileUsers = [
-        {
-          id: "user1",
-          address: "123 Main St, Quezon City, Philippines",
-          createdAt: "2025-12-05T15:38:11Z",
-          email: "ariaswarren01@gmail.com",
-          fullName: "Warren Arias",
-          hasLinkedDevices: true,
-          isEmailVerified: true,
-          isGmailAccount: true,
-          lastLogin: "2025-12-06T04:31:54Z",
-          otpVerified: true,
-          phoneNumber: "+639741235689",
-          photoURL: "",
-          profileImageUrl: "",
-          uid: "O79ST8nbOyQOBVl6CFPTkLPk50Z2",
-          updatedAt: "2025-12-07T10:15:22Z",
-          username: "ward123",
-          
-          waterFlowData: {
-            currentFlowRate: 45.2,
-            todayUsage: 1256.8,
-            todayBill: 18.45,
-            pressure: 2.8,
-            temperature: 28.5,
-            peakFlow: 78.3,
-            pressureStatus: 'normal',
-            pressureAssessment: getPressureAssessment(2.8),
-            flowHistory: [
-              { time: "06:00", flow: 12.5 },
-              { time: "08:00", flow: 45.2 },
-              { time: "10:00", flow: 32.1 },
-              { time: "12:00", flow: 28.7 },
-              { time: "14:00", flow: 38.9 },
-              { time: "16:00", flow: 25.4 },
-              { time: "18:00", flow: 52.3 },
-              { time: "20:00", flow: 18.6 },
-              { time: "22:00", flow: 8.4 },
-            ]
-          },
-          
-          waterUsage: {
-            today: {
-              liters: 1256.8,
-              bill: 18.45,
-              flowRate: 45.2,
-              peakFlow: 78.3,
-              duration: 8.5,
-              hourlyBreakdown: [
-                { hour: "06:00", usage: 45 },
-                { hour: "07:00", usage: 89 },
-                { hour: "08:00", usage: 156 },
-                { hour: "09:00", usage: 98 },
-                { hour: "10:00", usage: 123 },
-                { hour: "11:00", usage: 187 },
-                { hour: "12:00", usage: 145 },
-                { hour: "13:00", usage: 76 },
-                { hour: "14:00", usage: 132 },
-                { hour: "15:00", usage: 101 },
-              ]
-            },
-            monthly: {
-              liters: 32560.5,
-              bill: 489.75,
-              avgDaily: 1085.35,
-              trend: 12.5,
-              dailyAverage: [
-                { day: "Mon", usage: 1024 },
-                { day: "Tue", usage: 1567 },
-                { day: "Wed", usage: 1234 },
-                { day: "Thu", usage: 1890 },
-                { day: "Fri", usage: 1456 },
-                { day: "Sat", usage: 2103 },
-                { day: "Sun", usage: 876 },
-              ]
-            },
-            devices: {
-              total: 3,
-              active: 2,
-              consumption: {
-                mainMeter: 856.4,
-                kitchen: 210.3,
-                bathroom: 190.1
-              }
-            }
-          },
-          
-          alerts: [
-            {
-              id: "alert1",
-              type: "high_usage",
-              severity: "high",
-              title: "High Water Usage Alert",
-              message: "Water consumption exceeded 1000L in 6 hours. Current usage: 1256L",
-              timestamp: "2025-12-06T14:30:45Z",
-              status: "active",
-              source: "Main Flow Meter",
-              threshold: 1000,
-              currentValue: 1256.8,
-              unit: "liters",
-              actions: ["Acknowledge", "Adjust Threshold", "View Details"],
-              read: false
-            }
-          ]
-        },
-        {
-          id: "user2",
-          email: "john.doe@example.com",
-          fullName: "John Doe",
-          phoneNumber: "+639123456789",
-          address: "456 Ayala Ave, Makati, Philippines",
-          createdAt: "2025-11-15T10:30:00Z",
-          lastLogin: "2025-12-06T08:45:22Z",
-          isEmailVerified: true,
-          status: "active",
-          hasLinkedDevices: true,
-          waterFlowData: {
-            currentFlowRate: 32.7,
-            todayUsage: 890.3,
-            todayBill: 13.25,
-            pressure: 1.2,
-            temperature: 26.5,
-            peakFlow: 56.8,
-            pressureStatus: 'low',
-            pressureAssessment: getPressureAssessment(1.2)
-          },
-          waterUsage: {
-            today: {
-              liters: 890.3,
-              bill: 13.25,
-              flowRate: 32.7,
-              peakFlow: 56.8,
-              duration: 6.2
-            },
-            monthly: {
-              liters: 24580.2,
-              bill: 368.75,
-              avgDaily: 819.34,
-              trend: 5.3
-            }
-          }
-        },
-        {
-          id: "user3",
-          email: "maria.santos@example.com",
-          fullName: "Maria Santos",
-          phoneNumber: "+639876543210",
-          address: "789 Ortigas Center, Pasig, Philippines",
-          createdAt: "2025-11-10T14:20:00Z",
-          lastLogin: "2025-12-06T11:30:22Z",
-          isEmailVerified: true,
-          status: "active",
-          hasLinkedDevices: true,
-          waterFlowData: {
-            currentFlowRate: 28.5,
-            todayUsage: 756.2,
-            todayBill: 11.34,
-            pressure: 3.8,
-            temperature: 27.2,
-            peakFlow: 48.9,
-            pressureStatus: 'high',
-            pressureAssessment: getPressureAssessment(3.8)
-          }
-        },
-        {
-          id: "user4",
-          email: "juan.delacruz@example.com",
-          fullName: "Juan Dela Cruz",
-          phoneNumber: "+639555123456",
-          address: "321 Cebu City, Cebu, Philippines",
-          createdAt: "2025-11-05T09:15:00Z",
-          lastLogin: "2025-12-06T07:20:11Z",
-          isEmailVerified: true,
-          status: "active",
-          hasLinkedDevices: false,
-          waterFlowData: {
-            currentFlowRate: 0,
-            todayUsage: 0,
-            todayBill: 0,
-            pressure: 0,
-            temperature: 0,
-            peakFlow: 0,
-            pressureStatus: 'no_data',
-            pressureAssessment: getPressureAssessment(0)
-          }
-        }
-      ];
-
-      setMobileUsers(mockMobileUsers);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error loading users:', error);
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadMobileUsers();
-  }, []);
-
-  // Simulate real-time water flow updates for selected user
-  useEffect(() => {
-    if (!selectedUser || !showUserDetails) return;
-
-    const interval = setInterval(() => {
-      if (selectedUser && selectedUser.waterFlowData) {
-        const updatedPressure = Math.max(0.5, Math.min(4.5, selectedUser.waterFlowData.pressure + (Math.random() - 0.5) * 0.3));
-        const updatedUser = {
-          ...selectedUser,
-          waterFlowData: {
-            ...selectedUser.waterFlowData,
-            currentFlowRate: Math.max(5, selectedUser.waterFlowData.currentFlowRate + (Math.random() - 0.5) * 10),
-            pressure: updatedPressure,
-            pressureAssessment: getPressureAssessment(updatedPressure),
-            temperature: 25 + Math.random() * 5,
-            todayUsage: selectedUser.waterFlowData.todayUsage + (Math.random() * 3)
-          }
-        };
-        setSelectedUser(updatedUser);
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [selectedUser, showUserDetails]);
-
-  const handleUserClick = (user: any) => {
+  const handleUserClick = (user: ProcessedUser) => {
     setSelectedUser(user);
     setShowUserDetails(true);
     setActiveTab('overview');
@@ -533,8 +349,22 @@ export default function UsersManagementPage() {
     setSelectedUser(null);
   };
 
-  const getTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
+  const getTimeAgo = (timestamp: any) => {
+    let date: Date;
+    
+    if (timestamp && typeof timestamp.toDate === 'function') {
+      // It's a Firebase Timestamp
+      date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+      // It's already a Date
+      date = timestamp;
+    } else if (typeof timestamp === 'string') {
+      // It's a string
+      date = new Date(timestamp);
+    } else {
+      return 'Never';
+    }
+    
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -553,7 +383,9 @@ export default function UsersManagementPage() {
     });
   };
 
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string) => {
+    if (!name || name.trim() === '') return 'U';
+    
     return name
       .split(' ')
       .map(word => word.charAt(0))
@@ -586,27 +418,30 @@ export default function UsersManagementPage() {
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
       return (
-        user.fullName.toLowerCase().includes(searchLower) ||
+        (user.fullName?.toLowerCase().includes(searchLower) || false) ||
         user.email.toLowerCase().includes(searchLower) ||
-        user.phoneNumber.includes(searchTerm)
+        (user.phoneNumber?.includes(searchTerm) || false)
       );
     }
     
     if (filter === 'verified') return user.isEmailVerified;
     if (filter === 'withDevices') return user.hasLinkedDevices;
     if (filter === 'normalPressure') {
-      const level = user.waterFlowData?.pressureAssessment?.level;
-      return level === 'Normal' || level === 'Good';
+      const assessment = getPressureAssessment(user.waterFlowData?.pressure || 0);
+      return assessment?.level === 'Normal' || assessment?.level === 'Good';
     }
     if (filter === 'lowPressure') {
-      const level = user.waterFlowData?.pressureAssessment?.level;
-      return level === 'Very Low' || level === 'Low';
+      const assessment = getPressureAssessment(user.waterFlowData?.pressure || 0);
+      return assessment?.level === 'Very Low' || assessment?.level === 'Low';
     }
     if (filter === 'highPressure') {
-      const level = user.waterFlowData?.pressureAssessment?.level;
-      return level === 'High' || level === 'Very High';
+      const assessment = getPressureAssessment(user.waterFlowData?.pressure || 0);
+      return assessment?.level === 'High' || assessment?.level === 'Very High';
     }
-    if (filter === 'withAlerts') return user.alerts && user.alerts.length > 0;
+    if (filter === 'withAlerts') {
+      // You can add alerts to user data later
+      return false;
+    }
     
     return true;
   });
@@ -615,18 +450,53 @@ export default function UsersManagementPage() {
     return (
       <div style={{ 
         display: 'flex', 
+        flexDirection: 'column',
         justifyContent: 'center', 
         alignItems: 'center', 
         height: '50vh',
-        color: 'white'
+        color: 'white',
+        gap: '1rem'
       }}>
-        Loading users...
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div>Loading users from your mobile app...</div>
       </div>
     );
   }
 
   return (
     <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+      {/* Real-time connection indicator */}
+      <div style={{
+        position: 'fixed',
+        top: '1rem',
+        right: '1rem',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        background: realtimeConnected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+        border: `1px solid ${realtimeConnected ? '#10b981' : '#f59e0b'}`,
+        borderRadius: '20px',
+        padding: '6px 12px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        {realtimeConnected ? (
+          <>
+            <Wifi size={14} color="#10b981" />
+            <span style={{ color: '#10b981', fontSize: '12px', fontWeight: '500' }}>
+              Live from Mobile App
+            </span>
+          </>
+        ) : (
+          <>
+            <WifiOff size={14} color="#f59e0b" />
+            <span style={{ color: '#f59e0b', fontSize: '12px', fontWeight: '500' }}>
+              Connecting...
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Header with Stats */}
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -640,7 +510,7 @@ export default function UsersManagementPage() {
               Mobile App Users
             </h1>
             <p style={{ color: '#94a3b8', fontSize: '1rem' }}>
-              Monitor and manage water consumption with Philippine pressure standards
+              Real-time monitoring of {mobileUsers.length} users from your Flutter mobile app
             </p>
           </div>
           
@@ -833,7 +703,7 @@ export default function UsersManagementPage() {
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
                 {mobileUsers.filter(u => u.hasLinkedDevices).length}
               </div>
-              <div style={{ color: '#94a3b8', fontSize: '13px' }}>Active Devices</div>
+              <div style={{ color: '#94a3b8', fontSize: '13px' }}>With Devices</div>
             </div>
           </div>
 
@@ -861,7 +731,10 @@ export default function UsersManagementPage() {
             </div>
             <div>
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
-                {mobileUsers.filter(u => u.waterFlowData?.pressureAssessment?.level === 'Normal' || u.waterFlowData?.pressureAssessment?.level === 'Good').length}
+                {mobileUsers.filter(u => {
+                  const assessment = getPressureAssessment(u.waterFlowData?.pressure || 0);
+                  return assessment?.level === 'Normal' || assessment?.level === 'Good';
+                }).length}
               </div>
               <div style={{ color: '#94a3b8', fontSize: '13px' }}>Normal Pressure</div>
             </div>
@@ -893,7 +766,7 @@ export default function UsersManagementPage() {
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
                 ₱{(mobileUsers.reduce((acc, u) => acc + (u.waterFlowData?.todayBill || 0), 0) * 30).toFixed(0)}
               </div>
-              <div style={{ color: '#94a3b8', fontSize: '13px' }}>Monthly Revenue</div>
+              <div style={{ color: '#94a3b8', fontSize: '13px' }}>Estimated Monthly</div>
             </div>
           </div>
         </div>
@@ -1001,721 +874,296 @@ export default function UsersManagementPage() {
             Mobile App Users ({filteredUsers.length})
           </h2>
           <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-            Click any user to view detailed water consumption analytics
+            {realtimeConnected ? 'Real-time data from your Flutter app' : 'Connecting to mobile app...'}
           </div>
         </div>
         
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {filteredUsers.map((user) => {
-            const pressureAssessment = user.waterFlowData?.pressureAssessment;
-            const pressureColor = getPressureColor(user.waterFlowData?.pressure || 0);
-            
-            return (
-              <div 
-                key={user.id}
-                onClick={() => handleUserClick(user)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '16px',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  borderRadius: '12px',
-                  transition: 'all 0.2s ease',
-                  cursor: 'pointer',
-                  border: '1px solid transparent',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.border = '1px solid rgba(14, 165, 233, 0.3)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                  e.currentTarget.style.border = '1px solid transparent';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                {/* Alert Indicator Badge */}
-                {user.alerts?.filter((a: any) => !a.read).length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '-6px',
-                    right: '-6px',
-                    width: '20px',
-                    height: '20px',
-                    background: '#ef4444',
-                    borderRadius: '50%',
+        {filteredUsers.length === 0 ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '3rem',
+            color: '#94a3b8',
+            textAlign: 'center'
+          }}>
+            <Users size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+            <h3 style={{ color: 'white', fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+              No users found
+            </h3>
+            <p>
+              {searchTerm ? 'Try a different search term' : 'Your mobile app users will appear here'}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {filteredUsers.map((user) => {
+              const pressureAssessment = getPressureAssessment(user.waterFlowData?.pressure || 0);
+              const pressureColor = getPressureColor(user.waterFlowData?.pressure || 0);
+              
+              // Get profile image URL with real-time support
+              const profileImage = user.displayPhotoUrl || user.photoURL || user.profileImageUrl;
+              const hasProfileImage = profileImage && profileImage.startsWith('http');
+              const initials = getInitials(user.fullName);
+              const avatarColor = getColorFromEmail(user.email);
+              
+              return (
+                <div 
+                  key={user.id}
+                  onClick={() => handleUserClick(user)}
+                  style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    border: '2px solid rgba(15, 23, 42, 0.95)',
-                    zIndex: 1
+                    gap: '12px',
+                    padding: '16px',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    borderRadius: '12px',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer',
+                    border: '1px solid transparent',
+                    position: 'relative'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.currentTarget.style.border = '1px solid rgba(14, 165, 233, 0.3)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                    e.currentTarget.style.border = '1px solid transparent';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {/* User Avatar with real-time profile image */}
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    flexShrink: 0,
+                    border: '2px solid rgba(255, 255, 255, 0.1)',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                    background: avatarColor
                   }}>
-                    {user.alerts.filter((a: any) => !a.read).length}
-                  </div>
-                )}
-                
-                {/* User Avatar */}
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  background: getColorFromEmail(user.email),
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '600',
-                  fontSize: '16px',
-                  position: 'relative',
-                  flexShrink: 0
-                }}>
-                  {getInitials(user.fullName)}
-                  {user.isEmailVerified && (
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '-2px',
-                      right: '-2px',
-                      width: '14px',
-                      height: '14px',
-                      background: '#10b981',
-                      borderRadius: '50%',
-                      border: '2px solid rgba(30, 41, 59, 0.5)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      <CheckCircle size={8} style={{ color: 'white' }} />
-                    </div>
-                  )}
-                </div>
-                
-                {/* User Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ 
-                        color: 'white', 
-                        fontSize: '16px', 
+                    {hasProfileImage ? (
+                      <>
+                        <img 
+                          src={profileImage} 
+                          alt={user.fullName || user.email}
+                          onLoad={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            img.style.opacity = '1';
+                          }}
+                          onError={(e) => {
+                            // If image fails to load, show initials
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const fallback = target.nextElementSibling as HTMLDivElement;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            opacity: 0,
+                            transition: 'opacity 0.3s ease'
+                          }}
+                        />
+                        {/* Loading skeleton */}
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          background: 'linear-gradient(90deg, rgba(30, 41, 59, 0.2) 25%, rgba(30, 41, 59, 0.4) 50%, rgba(30, 41, 59, 0.2) 75%)',
+                          animation: 'loading 1.5s infinite',
+                          display: 'block'
+                        }} />
+                        {/* Fallback initials */}
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          background: avatarColor,
+                          color: 'white',
+                          display: 'none',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: '600',
+                          fontSize: '16px'
+                        }}>
+                          {initials}
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{
+                        width: '100%',
+                        height: '100%',
+                        background: avatarColor,
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         fontWeight: '600',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis'
+                        fontSize: '16px'
                       }}>
-                        {user.fullName}
+                        {initials}
                       </div>
-                      <div style={{ 
-                        color: '#94a3b8', 
-                        fontSize: '13px', 
-                        marginTop: '2px',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis'
+                    )}
+                    
+                    {/* Verification badge */}
+                    {user.isEmailVerified && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '-2px',
+                        right: '-2px',
+                        width: '16px',
+                        height: '16px',
+                        background: '#10b981',
+                        borderRadius: '50%',
+                        border: '2px solid rgba(30, 41, 59, 0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 2
                       }}>
-                        {user.email}
+                        <CheckCircle size={10} style={{ color: 'white' }} />
                       </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '500' }}>
-                          Last Login
-                        </div>
-                        <div style={{ color: '#0ea5e9', fontSize: '12px', fontWeight: '600' }}>
-                          {getTimeAgo(user.lastLogin)}
-                        </div>
-                      </div>
-                      <ArrowUpRight size={16} style={{ color: '#94a3b8' }} />
-                    </div>
+                    )}
                   </div>
                   
-                  {/* Metrics */}
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '16px', 
-                    marginTop: '8px',
-                    flexWrap: 'wrap',
-                    rowGap: '8px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Phone size={12} style={{ color: '#94a3b8' }} />
-                      <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{user.phoneNumber}</span>
+                  {/* User Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ 
+                          color: 'white', 
+                          fontSize: '16px', 
+                          fontWeight: '600',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {user.fullName || 'Unknown User'}
+                        </div>
+                        <div style={{ 
+                          color: '#94a3b8', 
+                          fontSize: '13px', 
+                          marginTop: '2px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {user.email}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                          <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '500' }}>
+                            Last Active
+                          </div>
+                          <div style={{ color: '#0ea5e9', fontSize: '12px', fontWeight: '600' }}>
+                            {getTimeAgo(user.lastActivity)}
+                          </div>
+                        </div>
+                        <ArrowUpRight size={16} style={{ color: '#94a3b8' }} />
+                      </div>
                     </div>
-                    {user.waterFlowData?.pressure && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Gauge size={12} style={{ color: pressureColor }} />
-                        <span style={{ 
-                          color: pressureColor, 
-                          fontSize: '13px',
-                          fontWeight: '500',
-                          background: `${pressureColor}20`,
-                          padding: '2px 8px',
-                          borderRadius: '12px'
-                        }}>
-                          {user.waterFlowData.pressure.toFixed(1)} Bar
-                        </span>
-                      </div>
-                    )}
-                    {user.waterFlowData?.todayBill > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <PesoSign size={12} color="#f59e0b" />
-                        <span style={{ 
-                          color: '#f59e0b', 
-                          fontSize: '13px',
-                          fontWeight: '500',
-                          background: 'rgba(245, 158, 11, 0.1)',
-                          padding: '2px 8px',
-                          borderRadius: '12px'
-                        }}>
-                          ₱{user.waterFlowData.todayBill.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                    {user.hasLinkedDevices && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Smartphone size={12} style={{ color: '#0ea5e9' }} />
-                        <span style={{ 
-                          color: '#0ea5e9', 
-                          fontSize: '13px',
-                          fontWeight: '500',
-                          background: 'rgba(14, 165, 233, 0.1)',
-                          padding: '2px 8px',
-                          borderRadius: '12px'
-                        }}>
-                          Connected
-                        </span>
-                      </div>
-                    )}
+                    
+                    {/* Metrics */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '16px', 
+                      marginTop: '8px',
+                      flexWrap: 'wrap',
+                      rowGap: '8px'
+                    }}>
+                      {user.phoneNumber && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Phone size={12} style={{ color: '#94a3b8' }} />
+                          <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{user.phoneNumber}</span>
+                        </div>
+                      )}
+                      {user.waterFlowData && user.waterFlowData.pressure > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Gauge size={12} style={{ color: pressureColor }} />
+                          <span style={{ 
+                            color: pressureColor, 
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            background: `${pressureColor}20`,
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            {user.waterFlowData.pressure.toFixed(1)} Bar
+                          </span>
+                        </div>
+                      )}
+                      {user.waterFlowData && user.waterFlowData.todayBill > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <PesoSign size={12} color="#f59e0b" />
+                          <span style={{ 
+                            color: '#f59e0b', 
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            background: 'rgba(245, 158, 11, 0.1)',
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            ₱{user.waterFlowData.todayBill.toFixed(2)}
+                          </span>
+                        </div>
+                      )}
+                      {user.hasLinkedDevices && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Smartphone size={12} style={{ color: '#0ea5e9' }} />
+                          <span style={{ 
+                            color: '#0ea5e9', 
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            background: 'rgba(14, 165, 233, 0.1)',
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            Connected
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* User Details Modal */}
       {showUserDetails && selectedUser && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '1rem',
-            animation: 'fadeIn 0.3s ease-out'
-          }}
-          onClick={closeUserDetails}
-        >
-          <div 
-            style={{
-              background: 'rgba(15, 23, 42, 0.95)',
-              backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(148, 163, 184, 0.2)',
-              borderRadius: '20px',
-              width: '100%',
-              maxWidth: '1200px',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              animation: 'scaleIn 0.3s ease-out'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div style={{
-              padding: '1.5rem',
-              borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              position: 'sticky',
-              top: 0,
-              background: 'rgba(15, 23, 42, 0.95)',
-              zIndex: 10
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{
-                  width: '60px',
-                  height: '60px',
-                  borderRadius: '12px',
-                  background: getColorFromEmail(selectedUser.email),
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '600',
-                  fontSize: '20px'
-                }}>
-                  {getInitials(selectedUser.fullName)}
-                </div>
-                <div>
-                  <h3 style={{ color: 'white', fontSize: '1.5rem', fontWeight: '600', margin: 0 }}>
-                    {selectedUser.fullName}
-                  </h3>
-                  <p style={{ color: '#94a3b8', fontSize: '14px', margin: '4px 0 0 0' }}>
-                    {selectedUser.address || 'Philippines'}
-                  </p>
-                </div>
-              </div>
-              
-              <button
-                onClick={closeUserDetails}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#94a3b8',
-                  fontSize: '1.5rem',
-                  cursor: 'pointer',
-                  padding: '8px',
-                  borderRadius: '8px',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(148, 163, 184, 0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'none';
-                }}
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            {/* Modal Tabs */}
-            <div style={{
-              display: 'flex',
-              borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-              padding: '0 1.5rem',
-              overflowX: 'auto',
-              position: 'sticky',
-              top: '92px',
-              background: 'rgba(15, 23, 42, 0.95)',
-              zIndex: 9
-            }}>
-              {['overview', 'charts', 'activity', 'alerts', 'devices', 'water-usage', 'security'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab as any)}
-                  style={{
-                    padding: '1rem 1.5rem',
-                    background: activeTab === tab ? 'rgba(30, 41, 59, 0.5)' : 'transparent',
-                    border: 'none',
-                    color: activeTab === tab ? 'white' : '#94a3b8',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    cursor: 'pointer',
-                    borderBottom: activeTab === tab ? '2px solid #0ea5e9' : '2px solid transparent',
-                    transition: 'all 0.2s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    textTransform: 'capitalize',
-                    position: 'relative',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0
-                  }}
-                >
-                  {tab === 'overview' && <User size={16} />}
-                  {tab === 'charts' && <LineChart size={16} />}
-                  {tab === 'activity' && <History size={16} />}
-                  {tab === 'alerts' && <Bell size={16} />}
-                  {tab === 'devices' && <Smartphone size={16} />}
-                  {tab === 'water-usage' && <Droplets size={16} />}
-                  {tab === 'security' && <ShieldIcon size={16} />}
-                  {tab.replace('-', ' ')}
-                </button>
-              ))}
-            </div>
-
-            {/* Modal Content */}
-            <div style={{ padding: '1.5rem' }}>
-              {activeTab === 'overview' && selectedUser.waterFlowData && (
-                <div style={{ display: 'grid', gap: '1.5rem' }}>
-                  {/* Key Metrics */}
-                  <div>
-                    <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
-                      Current Water Metrics
-                    </h4>
-                    
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-                      gap: '1rem'
-                    }}>
-                      <div style={{
-                        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                        border: '1px solid rgba(14, 165, 233, 0.2)',
-                        borderRadius: '12px',
-                        padding: '1.25rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(14, 165, 233, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#0ea5e9'
-                          }}>
-                            <Droplets size={20} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Current Flow</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: getFlowColor(selectedUser.waterFlowData.currentFlowRate) }}>
-                              {selectedUser.waterFlowData.currentFlowRate.toFixed(1)} L/min
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{
-                        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                        border: `1px solid ${getPressureColor(selectedUser.waterFlowData.pressure)}40`,
-                        borderRadius: '12px',
-                        padding: '1.25rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: `${getPressureColor(selectedUser.waterFlowData.pressure)}20`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: getPressureColor(selectedUser.waterFlowData.pressure)
-                          }}>
-                            <Gauge size={20} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Water Pressure</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: getPressureColor(selectedUser.waterFlowData.pressure) }}>
-                              {selectedUser.waterFlowData.pressure.toFixed(1)} Bar
-                            </div>
-                          </div>
-                        </div>
-                        {selectedUser.waterFlowData.pressureAssessment && (
-                          <div style={{ 
-                            fontSize: '0.75rem', 
-                            color: getPressureColor(selectedUser.waterFlowData.pressure),
-                            background: `${getPressureColor(selectedUser.waterFlowData.pressure)}15`,
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            marginTop: '8px'
-                          }}>
-                            {selectedUser.waterFlowData.pressureAssessment.level}
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{
-                        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                        borderRadius: '12px',
-                        padding: '1.25rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(16, 185, 129, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#10b981'
-                          }}>
-                            <BarChart3 size={20} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Usage</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'white' }}>
-                              {formatLiters(selectedUser.waterFlowData.todayUsage)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{
-                        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                        border: '1px solid rgba(245, 158, 11, 0.2)',
-                        borderRadius: '12px',
-                        padding: '1.25rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(245, 158, 11, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#f59e0b'
-                          }}>
-                            <PesoSign size={20} color="#f59e0b" />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Bill</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'white' }}>
-                              ₱{selectedUser.waterFlowData.todayBill.toFixed(2)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick Weekly Chart */}
-                  <div style={{
-                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                    borderRadius: '12px',
-                    padding: '1.25rem',
-                    border: '1px solid rgba(148, 163, 184, 0.2)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h5 style={{ color: 'white', fontSize: '16px', fontWeight: '600' }}>
-                        <BarChart size={16} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} />
-                        Weekly Water Usage Overview
-                      </h5>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Calendar size={14} style={{ color: '#94a3b8' }} />
-                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>Last 7 days</span>
-                      </div>
-                    </div>
-                    <div style={{ height: '250px' }}>
-                      <Bar data={weeklyUsageData} options={barChartOptions} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'charts' && selectedUser.waterFlowData && (
-                <div style={{ display: 'grid', gap: '1.5rem' }}>
-                  {/* Weekly Usage Chart */}
-                  <div style={{
-                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                    borderRadius: '12px',
-                    padding: '1.5rem',
-                    border: '1px solid rgba(148, 163, 184, 0.2)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <div>
-                        <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
-                          Weekly Water Usage Analysis
-                        </h4>
-                        <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-                          Daily consumption patterns and trends
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button style={{
-                          padding: '6px 12px',
-                          background: 'rgba(14, 165, 233, 0.1)',
-                          border: '1px solid rgba(14, 165, 233, 0.3)',
-                          borderRadius: '8px',
-                          color: '#0ea5e9',
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}>
-                          Week
-                        </button>
-                        <button style={{
-                          padding: '6px 12px',
-                          background: 'rgba(30, 41, 59, 0.5)',
-                          border: '1px solid rgba(148, 163, 184, 0.3)',
-                          borderRadius: '8px',
-                          color: '#94a3b8',
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}>
-                          Month
-                        </button>
-                        <button style={{
-                          padding: '6px 12px',
-                          background: 'rgba(30, 41, 59, 0.5)',
-                          border: '1px solid rgba(148, 163, 184, 0.3)',
-                          borderRadius: '8px',
-                          color: '#94a3b8',
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}>
-                          Year
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ height: '300px' }}>
-                      <Line data={weeklyUsageData} options={lineChartOptions} />
-                    </div>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      marginTop: '1.5rem',
-                      padding: '1rem',
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      borderRadius: '8px'
-                    }}>
-                      <div>
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>Weekly Average</div>
-                        <div style={{ color: '#0ea5e9', fontSize: '16px', fontWeight: '600' }}>1,456 L</div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>Peak Day</div>
-                        <div style={{ color: '#f59e0b', fontSize: '16px', fontWeight: '600' }}>Sat (2,103 L)</div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>Trend</div>
-                        <div style={{ color: '#10b981', fontSize: '16px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <TrendingUp size={16} />
-                          +12.5%
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Monthly Trend Chart */}
-                  <div style={{
-                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                    borderRadius: '12px',
-                    padding: '1.5rem',
-                    border: '1px solid rgba(148, 163, 184, 0.2)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <div>
-                        <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
-                          Monthly Consumption Trend
-                        </h4>
-                        <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-                          12-month water usage overview
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ height: '300px' }}>
-                      <Bar data={monthlyTrendData} options={barChartOptions} />
-                    </div>
-                  </div>
-
-                  {/* Daily Pattern Chart */}
-                  <div style={{
-                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                    borderRadius: '12px',
-                    padding: '1.5rem',
-                    border: '1px solid rgba(148, 163, 184, 0.2)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <div>
-                        <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
-                          Daily Water Flow Pattern
-                        </h4>
-                        <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-                          Typical hourly consumption patterns
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ height: '250px' }}>
-                      <Bar data={dailyPatternData} options={barChartOptions} />
-                    </div>
-                    <div style={{ 
-                      marginTop: '1.5rem',
-                      padding: '1rem',
-                      background: 'rgba(139, 92, 246, 0.1)',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(139, 92, 246, 0.2)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
-                        <span style={{ color: '#cbd5e1', fontSize: '14px' }}>
-                          <strong>Peak Hours:</strong> 6-8 AM and 6-8 PM. Consider optimizing usage during off-peak times.
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Other tabs can be implemented similarly */}
-              {activeTab === 'water-usage' && (
-                <div style={{
-                  background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-                  borderRadius: '12px',
-                  padding: '1.5rem',
-                  border: '1px solid rgba(148, 163, 184, 0.2)'
-                }}>
-                  <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
-                    Water Usage Analytics
-                  </h4>
-                  <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-                    Detailed water consumption analysis and insights
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div style={{
-              padding: '1.5rem',
-              borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '1rem'
-            }}>
-              <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                User ID: {selectedUser.id}
-              </div>
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <button
-                  onClick={closeUserDetails}
-                  style={{
-                    padding: '10px 20px',
-                    background: 'rgba(30, 41, 59, 0.8)',
-                    border: '1px solid rgba(148, 163, 184, 0.3)',
-                    borderRadius: '10px',
-                    color: '#cbd5e1',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  Close
-                </button>
-                <button style={{
-                  padding: '10px 20px',
-                  background: 'linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%)',
-                  border: 'none',
-                  borderRadius: '10px',
-                  color: 'white',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
-                  <Download size={16} />
-                  Export Report
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <UserDetailsModal 
+          user={selectedUser}
+          onClose={closeUserDetails}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          getPressureColor={getPressureColor}
+          getPressureAssessment={getPressureAssessment}
+          formatLiters={formatLiters}
+          getFlowColor={getFlowColor}
+          weeklyUsageData={weeklyUsageData}
+          monthlyTrendData={monthlyTrendData}
+          dailyPatternData={dailyPatternData}
+          lineChartOptions={lineChartOptions}
+          barChartOptions={barChartOptions}
+          getColorFromEmail={getColorFromEmail}
+          getInitials={getInitials}
+          getTimeAgo={getTimeAgo}
+        />
       )}
 
       <style jsx>{`
@@ -1729,23 +1177,510 @@ export default function UsersManagementPage() {
           to { transform: scale(1); opacity: 1; }
         }
         
-        /* Responsive styles */
-        @media (max-width: 768px) {
-          .modal-content {
-            width: 95% !important;
-            margin: 1rem;
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        @keyframes loading {
+          0% {
+            background-position: -200px 0;
           }
-          
-          .user-list-item {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          
-          .user-metrics {
-            flex-wrap: wrap;
+          100% {
+            background-position: calc(200px + 100%) 0;
           }
         }
+        
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
       `}</style>
+    </div>
+  );
+}
+
+// Separate Modal Component for better organization
+interface UserDetailsModalProps {
+  user: ProcessedUser;
+  onClose: () => void;
+  activeTab: string;
+  setActiveTab: (tab: any) => void;
+  getPressureColor: (pressure: number) => string;
+  getPressureAssessment: (pressure: number) => any;
+  formatLiters: (liters: number) => string;
+  getFlowColor: (flowRate: number) => string;
+  weeklyUsageData: any;
+  monthlyTrendData: any;
+  dailyPatternData: any;
+  lineChartOptions: any;
+  barChartOptions: any;
+  getColorFromEmail: (email: string) => string;
+  getInitials: (name?: string) => string;
+  getTimeAgo: (timestamp: any) => string;
+}
+
+function UserDetailsModal({
+  user,
+  onClose,
+  activeTab,
+  setActiveTab,
+  getPressureColor,
+  getPressureAssessment,
+  formatLiters,
+  getFlowColor,
+  weeklyUsageData,
+  monthlyTrendData,
+  dailyPatternData,
+  lineChartOptions,
+  barChartOptions,
+  getColorFromEmail,
+  getInitials,
+  getTimeAgo
+}: UserDetailsModalProps) {
+  
+  // Get profile image for modal
+  const profileImage = user.displayPhotoUrl || user.photoURL || user.profileImageUrl;
+  const hasProfileImage = profileImage && profileImage.startsWith('http');
+  const initials = getInitials(user.fullName);
+  const avatarColor = getColorFromEmail(user.email);
+
+  return (
+    <div 
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.7)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '1rem',
+        animation: 'fadeIn 0.3s ease-out'
+      }}
+      onClick={onClose}
+    >
+      <div 
+        style={{
+          background: 'rgba(15, 23, 42, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(148, 163, 184, 0.2)',
+          borderRadius: '20px',
+          width: '100%',
+          maxWidth: '1200px',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          animation: 'scaleIn 0.3s ease-out'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div style={{
+          padding: '1.5rem',
+          borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          position: 'sticky',
+          top: 0,
+          background: 'rgba(15, 23, 42, 0.95)',
+          zIndex: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{
+              width: '60px',
+              height: '60px',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              position: 'relative',
+              border: '2px solid rgba(255, 255, 255, 0.1)',
+              background: avatarColor
+            }}>
+              {hasProfileImage ? (
+                <>
+                  <img 
+                    src={profileImage} 
+                    alt={user.fullName || user.email}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover'
+                    }}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const fallback = target.nextElementSibling as HTMLDivElement;
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    background: avatarColor,
+                    color: 'white',
+                    display: 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: '600',
+                    fontSize: '20px'
+                  }}>
+                    {initials}
+                  </div>
+                </>
+              ) : (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  background: avatarColor,
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '600',
+                  fontSize: '20px'
+                }}>
+                  {initials}
+                </div>
+              )}
+            </div>
+            <div>
+              <h3 style={{ color: 'white', fontSize: '1.5rem', fontWeight: '600', margin: 0 }}>
+                {user.fullName || 'Unknown User'}
+              </h3>
+              <p style={{ color: '#94a3b8', fontSize: '14px', margin: '4px 0 0 0' }}>
+                {user.email}
+              </p>
+            </div>
+          </div>
+          
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              fontSize: '1.5rem',
+              cursor: 'pointer',
+              padding: '8px',
+              borderRadius: '8px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(148, 163, 184, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'none';
+            }}
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Modal Tabs */}
+        <div style={{
+          display: 'flex',
+          borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+          padding: '0 1.5rem',
+          overflowX: 'auto',
+          position: 'sticky',
+          top: '92px',
+          background: 'rgba(15, 23, 42, 0.95)',
+          zIndex: 9
+        }}>
+          {['overview', 'charts', 'activity', 'alerts', 'devices', 'water-usage', 'security'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              style={{
+                padding: '1rem 1.5rem',
+                background: activeTab === tab ? 'rgba(30, 41, 59, 0.5)' : 'transparent',
+                border: 'none',
+                color: activeTab === tab ? 'white' : '#94a3b8',
+                fontSize: '14px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                borderBottom: activeTab === tab ? '2px solid #0ea5e9' : '2px solid transparent',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                textTransform: 'capitalize',
+                position: 'relative',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}
+            >
+              {tab === 'overview' && <User size={16} />}
+              {tab === 'charts' && <LineChart size={16} />}
+              {tab === 'activity' && <History size={16} />}
+              {tab === 'alerts' && <Bell size={16} />}
+              {tab === 'devices' && <Smartphone size={16} />}
+              {tab === 'water-usage' && <Droplets size={16} />}
+              {tab === 'security' && <ShieldIcon size={16} />}
+              {tab.replace('-', ' ')}
+            </button>
+          ))}
+        </div>
+
+        {/* Modal Content */}
+        <div style={{ padding: '1.5rem' }}>
+          {activeTab === 'overview' && user.waterFlowData && (
+            <div style={{ display: 'grid', gap: '1.5rem' }}>
+              {/* Key Metrics */}
+              <div>
+                <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
+                  Current Water Metrics
+                </h4>
+                
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
+                  gap: '1rem'
+                }}>
+                  <div style={{
+                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                    border: '1px solid rgba(14, 165, 233, 0.2)',
+                    borderRadius: '12px',
+                    padding: '1.25rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: 'rgba(14, 165, 233, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#0ea5e9'
+                      }}>
+                        <Droplets size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Current Flow</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '700', color: getFlowColor(user.waterFlowData.currentFlowRate) }}>
+                          {user.waterFlowData.currentFlowRate.toFixed(1)} L/min
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                    border: `1px solid ${getPressureColor(user.waterFlowData.pressure)}40`,
+                    borderRadius: '12px',
+                    padding: '1.25rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: `${getPressureColor(user.waterFlowData.pressure)}20`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: getPressureColor(user.waterFlowData.pressure)
+                      }}>
+                        <Gauge size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Water Pressure</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '700', color: getPressureColor(user.waterFlowData.pressure) }}>
+                          {user.waterFlowData.pressure.toFixed(1)} Bar
+                        </div>
+                      </div>
+                    </div>
+                    {user.waterFlowData.pressure > 0 && (
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: getPressureColor(user.waterFlowData.pressure),
+                        background: `${getPressureColor(user.waterFlowData.pressure)}15`,
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        marginTop: '8px'
+                      }}>
+                        {getPressureAssessment(user.waterFlowData.pressure)?.level || 'No data'}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{
+                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                    borderRadius: '12px',
+                    padding: '1.25rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#10b981'
+                      }}>
+                        <BarChart3 size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Usage</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'white' }}>
+                          {formatLiters(user.waterFlowData.todayUsage)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                    border: '1px solid rgba(245, 158, 11, 0.2)',
+                    borderRadius: '12px',
+                    padding: '1.25rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: 'rgba(245, 158, 11, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f59e0b'
+                      }}>
+                        <PesoSign size={20} color="#f59e0b" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Bill</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'white' }}>
+                          ₱{user.waterFlowData.todayBill.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* User Info */}
+              <div style={{
+                background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                border: '1px solid rgba(148, 163, 184, 0.2)'
+              }}>
+                <h5 style={{ color: 'white', fontSize: '16px', fontWeight: '600', marginBottom: '1rem' }}>
+                  User Information
+                </h5>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
+                  <div>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>Username</div>
+                    <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>{user.username || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>Phone</div>
+                    <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>{user.phoneNumber || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>Address</div>
+                    <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>{user.address || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>Account Created</div>
+                    <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
+                      {getTimeAgo(user.createdAt)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Other tabs content remains similar... */}
+          {activeTab === 'charts' && (
+            <div style={{ display: 'grid', gap: '1.5rem' }}>
+              {/* Weekly Usage Chart */}
+              <div style={{
+                background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                border: '1px solid rgba(148, 163, 184, 0.2)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <div>
+                    <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
+                      Weekly Water Usage Analysis
+                    </h4>
+                    <p style={{ color: '#94a3b8', fontSize: '14px' }}>
+                      Daily consumption patterns and trends
+                    </p>
+                  </div>
+                </div>
+                <div style={{ height: '300px' }}>
+                  <Line data={weeklyUsageData} options={lineChartOptions} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div style={{
+          padding: '1.5rem',
+          borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem'
+        }}>
+          <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+            User ID: {user.id}
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                background: 'rgba(30, 41, 59, 0.8)',
+                border: '1px solid rgba(148, 163, 184, 0.3)',
+                borderRadius: '10px',
+                color: '#cbd5e1',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              Close
+            </button>
+            <button style={{
+              padding: '10px 20px',
+              background: 'linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%)',
+              border: 'none',
+              borderRadius: '10px',
+              color: 'white',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <Download size={16} />
+              Export Report
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

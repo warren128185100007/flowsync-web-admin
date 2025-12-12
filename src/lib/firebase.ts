@@ -1,4 +1,4 @@
-// src/lib/firebase.ts - UPDATE THIS FILE
+// src/lib/firebase.ts
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { 
   getAuth, 
@@ -27,7 +27,10 @@ let adminAuth: ReturnType<typeof getAuth>;
 let adminDb: ReturnType<typeof getFirestore>;
 let adminStorage: ReturnType<typeof getStorage>;
 
+console.log('🔄 Initializing Firebase...');
+
 if (!getApps().some(app => app.name === ADMIN_APP_NAME)) {
+  console.log('📱 Creating new Firebase admin app');
   adminApp = initializeApp(firebaseConfig, ADMIN_APP_NAME);
   adminAuth = getAuth(adminApp);
   adminDb = getFirestore(adminApp);
@@ -35,7 +38,12 @@ if (!getApps().some(app => app.name === ADMIN_APP_NAME)) {
   
   // Set admin-specific persistence
   setPersistence(adminAuth, browserSessionPersistence);
+  
+  console.log('✅ Firebase initialized successfully');
+  console.log('📊 Firestore database:', adminDb);
+  console.log('📦 Storage:', adminStorage);
 } else {
+  console.log('🔄 Using existing Firebase app');
   adminApp = getApps().find(app => app.name === ADMIN_APP_NAME)!;
   adminAuth = getAuth(adminApp);
   adminDb = getFirestore(adminApp);

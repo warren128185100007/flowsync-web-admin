@@ -384,6 +384,7 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [selectedUser, showUserDetails]);
 
+  // UPDATED: Removed System Health and System Uptime cards
   const statCards = [
     {
       title: 'Active Devices',
@@ -400,33 +401,13 @@ export default function DashboardPage() {
       change: `${mobileUsers.reduce((sum, user) => sum + (user.alerts?.length || 0), 0)} total`
     },
     {
-      title: 'System Health',
-      value: `${stats.systemHealth}%`,
-      icon: <Zap size={24} />,
-      color: '#10b981',
-      change: 'Optimal'
-    },
-    {
       title: 'Active Users',
       value: stats.users,
       icon: <Users size={24} />,
       color: '#8b5cf6',
       change: `${mobileUsers.length} registered`
     },
-    {
-      title: 'System Uptime',
-      value: stats.uptime,
-      icon: <Clock size={24} />,
-      color: '#6366f1',
-      change: 'Last 30 days'
-    },
-    {
-      title: 'Water Flow',
-      value: `${mobileUsers.reduce((sum, user) => sum + (user.waterFlowData?.currentFlowRate || 0), 0).toFixed(0)} L/min`,
-      icon: <Waves size={24} />,
-      color: '#ec4899',
-      change: 'Real-time total'
-    }
+
   ];
 
   if (loading) {
@@ -521,40 +502,7 @@ export default function DashboardPage() {
           </select>
         </div>
         
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button style={{
-            padding: '12px 24px',
-            background: 'rgba(30, 41, 59, 0.8)',
-            border: '1px solid rgba(148, 163, 184, 0.3)',
-            borderRadius: '10px',
-            color: 'white',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <Download size={18} />
-            Export
-          </button>
-          <button style={{
-            padding: '12px 24px',
-            background: 'linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%)',
-            border: 'none',
-            borderRadius: '10px',
-            color: 'white',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <UserPlus size={18} />
-            Add User
-          </button>
-        </div>
+        
       </div>
 
       {/* Stats Grid */}
