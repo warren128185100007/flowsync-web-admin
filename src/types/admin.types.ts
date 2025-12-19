@@ -1,11 +1,13 @@
-// src/types/admin.types.ts
 import { Timestamp } from 'firebase/firestore';
+
+// Only super_admin and admin
+export type AdminRole = 'super_admin' | 'admin';
 
 export interface SuperAdmin {
   uid: string;
   email: string;
   name: string;
-  role: 'super_admin' | 'admin' | 'moderator';
+  role: AdminRole;
   isActive: boolean;
   isLocked: boolean;
   mfaEnabled: boolean;

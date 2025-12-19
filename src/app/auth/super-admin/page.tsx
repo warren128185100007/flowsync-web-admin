@@ -1,12 +1,14 @@
-// src/app/auth/super-admin/page.tsx
+// src/app/auth/super-admin/page.tsx - CLEAN VERSION
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { AdminAuthService } from '@/lib/admin-auth.service';
 import Image from 'next/image';
 import styles from './super-admin.module.css';
 
 export default function SuperAdminLoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,45 +20,21 @@ export default function SuperAdminLoginPage() {
     setError('');
 
     try {
-      console.log('🔐 === LOGIN ATTEMPT START ===');
-      console.log('Email:', email);
-      
       const result = await AdminAuthService.superAdminLogin({ email, password });
-      console.log('📋 Login result:', result);
       
-      if (result.success) {
-        console.log('✅ LOGIN SUCCESSFUL!');
-        
-        // Store user data in localStorage
-        const userData = {
-          email: email,
-          role: 'super-admin',
-          name: 'Super Administrator',
-          timestamp: new Date().toISOString(),
-          authTime: Date.now()
-        };
-        
-        console.log('💾 Storing user data:', userData);
-        localStorage.setItem('admin_user', JSON.stringify(userData));
-        
-        // Verify storage
-        const storedData = localStorage.getItem('admin_user');
-        console.log('🔍 localStorage verification:', storedData);
-        
-        // Redirect to dashboard
-        console.log('🚀 Redirecting to /dashboard...');
-        window.location.href = '/dashboard';
-        
+      if (result.success && result.admin) {
+        // The service handles localStorage storage
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 500);
       } else {
-        console.error('❌ LOGIN FAILED:', result.message);
         setError(result.message || 'Login failed. Please check your credentials.');
       }
     } catch (err: any) {
-      console.error('💥 LOGIN ERROR:', err);
+      console.error('Login error:', err);
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
-      console.log('🔚 === LOGIN ATTEMPT END ===');
     }
   };
 
@@ -90,10 +68,10 @@ export default function SuperAdminLoginPage() {
             WebkitBackgroundClip: 'text',
             color: 'transparent'
           }}>
-            Admin Access
+            Admin Portal
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-            Enter your super administrator credentials
+            Sign in with your admin credentials
           </p>
         </div>
 
@@ -203,7 +181,19 @@ export default function SuperAdminLoginPage() {
             gap: '6px'
           }}>
             <span>🔒</span>
-            <span>Secure super admin portal</span>
+            <span>Secure admin authentication</span>
+          </div>
+          <div style={{ 
+            fontSize: '11px', 
+            color: '#475569',
+            marginTop: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px'
+          }}>
+            <span>⚙️</span>
+            <span>Super admin & regular admin access</span>
           </div>
         </div>
       </div>

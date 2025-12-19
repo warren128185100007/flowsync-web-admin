@@ -1,7 +1,7 @@
 // src/app/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Cpu, 
   AlertTriangle, 
@@ -13,7 +13,6 @@ import {
   Clock,
   Battery,
   Wifi,
-  // New icons for user data
   Search,
   Download,
   Mail,
@@ -45,40 +44,61 @@ import {
   TrendingDown,
   Thermometer,
   X,
-  ArrowUpRight
+  ArrowUpRight,
+  Globe,
+  MapPin,
+  UserCheck,
+  Smartphone as SmartphoneIcon,
+  ShieldCheck,
+  FileText,
+  Loader2,
+  WifiOff,
+  CheckSquare,
+  Square,
+  Crown
 } from 'lucide-react';
+import RealtimeUserService, { ProcessedUser, UserStats } from '@/lib/realtime-users-service';
+
+// Extend the ProcessedUser type to include connectedDevices
+interface ExtendedUser extends ProcessedUser {
+  connectedDevices?: Array<{
+    id: string;
+    name: string;
+    model: string;
+    status: 'online' | 'offline' | 'unknown';
+    currentFlow?: string;
+    totalToday?: string;
+    battery?: number;
+    connectedSince?: string | Date;
+  }>;
+}
 
 export default function DashboardPage() {
   const [userData, setUserData] = useState<any>(null);
   const [stats, setStats] = useState({
-    devices: 24,
-    activeAlerts: 3,
+    devices: 0,
+    activeAlerts: 0,
     systemHealth: 98,
-    users: 156,
+    users: 0,
     uptime: '99.8%',
     responseTime: '42ms'
   });
 
-  // User management states from users page
+  // User management states
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<ExtendedUser | null>(null);
   const [showUserDetails, setShowUserDetails] = useState(false);
-  const [mobileUsers, setMobileUsers] = useState<any[]>([]);
+  const [mobileUsers, setMobileUsers] = useState<ExtendedUser[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<ExtendedUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'alerts' | 'devices' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'alerts' | 'devices' | 'profile'>('overview');
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
-
-  useEffect(() => {
-    const data = localStorage.getItem('admin_user');
-    if (data) {
-      setUserData(JSON.parse(data));
-    }
-
-    // Load mobile users data
-    loadMobileUsers();
-  }, []);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // Helper functions
   const getColorFromEmail = (email: string) => {
@@ -87,7 +107,8 @@ export default function DashboardPage() {
     return colors[index];
   };
 
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string) => {
+    if (!name || name.trim() === '') return 'U';
     return name
       .split(' ')
       .map(word => word.charAt(0))
@@ -96,8 +117,22 @@ export default function DashboardPage() {
       .substring(0, 2);
   };
 
-  const formatDateTime = (dateString: string | Date) => {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+  const formatDateTime = (dateString: any) => {
+    if (!dateString) return 'N/A';
+    let date: Date;
+    
+    if (dateString && typeof dateString.toDate === 'function') {
+      date = dateString.toDate();
+    } else if (dateString instanceof Date) {
+      date = dateString;
+    } else if (typeof dateString === 'string') {
+      date = new Date(dateString);
+    } else {
+      return 'Invalid Date';
+    }
+    
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    
     return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -107,8 +142,22 @@ export default function DashboardPage() {
     });
   };
 
-  const getTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
+  const getTimeAgo = (timestamp: any) => {
+    if (!timestamp) return 'Never';
+    
+    let date: Date;
+    if (timestamp && typeof timestamp.toDate === 'function') {
+      date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      return 'Never';
+    }
+    
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -119,21 +168,7 @@ export default function DashboardPage() {
     if (diffMins < 60) return `${diffMins} min ago`;
     if (diffHours < 24) return `${diffHours} hours ago`;
     if (diffDays < 7) return `${diffDays} days ago`;
-    return formatDateTime(dateString);
-  };
-
-  const formatLiters = (liters: number) => {
-    if (liters >= 1000) {
-      return `${(liters / 1000).toFixed(1)}k L`;
-    }
-    return `${liters.toFixed(1)} L`;
-  };
-
-  const getFlowColor = (flowRate: number) => {
-    if (flowRate > 60) return '#ef4444';
-    if (flowRate > 40) return '#f59e0b';
-    if (flowRate > 20) return '#0ea5e9';
-    return '#10b981';
+    return formatDateTime(date);
   };
 
   // Alert severity helpers
@@ -171,175 +206,159 @@ export default function DashboardPage() {
     }
   };
 
-  // Load mobile users function
-  const loadMobileUsers = async () => {
+  // Format phone number
+  const formatPhoneNumber = (phoneNumber: string = '') => {
+    if (!phoneNumber || phoneNumber.trim() === '') return 'Not set';
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    if (cleaned.startsWith('63') && cleaned.length === 11) {
+      return `+63 ${cleaned.substring(2, 5)} ${cleaned.substring(5, 8)} ${cleaned.substring(8)}`;
+    }
+    return phoneNumber;
+  };
+
+  // Philippine Water Pressure Standards helpers
+  const getPressureAssessment = (pressureInBar: number) => {
+    const pressureInPsi = pressureInBar * 14.5038;
+    
+    if (pressureInPsi < 10) return { level: 'Very Low', color: '#ef4444' };
+    if (pressureInPsi >= 10 && pressureInPsi <= 20) return { level: 'Low', color: '#f59e0b' };
+    if (pressureInPsi > 20 && pressureInPsi <= 30) return { level: 'Normal', color: '#10b981' };
+    if (pressureInPsi > 30 && pressureInPsi <= 50) return { level: 'Good', color: '#0ea5e9' };
+    if (pressureInPsi > 50 && pressureInPsi <= 60) return { level: 'High', color: '#8b5cf6' };
+    return { level: 'Very High', color: '#ec4899' };
+  };
+
+  const getPressureColor = (pressureInBar: number) => {
+    if (pressureInBar === 0) return '#64748b';
+    const pressureInPsi = pressureInBar * 14.5038;
+    
+    if (pressureInPsi < 10) return '#ef4444';
+    if (pressureInPsi >= 10 && pressureInPsi <= 20) return '#f59e0b';
+    if (pressureInPsi > 20 && pressureInPsi <= 30) return '#10b981';
+    if (pressureInPsi > 30 && pressureInPsi <= 50) return '#0ea5e9';
+    if (pressureInPsi > 50 && pressureInPsi <= 60) return '#8b5cf6';
+    return '#ec4899';
+  };
+
+  // Load user stats
+  const loadUserStats = async () => {
     try {
-      const mockUsers = [
-        {
-          id: "user1",
-          address: "123 Main St, City, Country",
-          createdAt: "2025-12-05T15:38:11Z",
-          email: "ariaswarren01@gmail.com",
-          fullName: "Warren Arias",
-          hasLinkedDevices: true,
-          isEmailVerified: true,
-          isGmailAccount: true,
-          lastLogin: "2025-12-06T04:31:54Z",
-          otpVerified: true,
-          phoneNumber: "+639741235689",
-          photoURL: "",
-          profileImageUrl: "",
-          uid: "O79ST8nbOyQOBVl6CFPTkLPk50Z2",
-          updatedAt: "2025-12-07T10:15:22Z",
-          username: "ward123",
-          
-          waterFlowData: {
-            currentFlowRate: 45.2,
-            todayUsage: 1256.8,
-            todayBill: 18.45,
-            pressure: 3.2,
-            temperature: 28.5,
-            peakFlow: 78.3
-          },
-          
-          waterUsage: {
-            today: {
-              liters: 1256.8,
-              bill: 18.45,
-              flowRate: 45.2,
-              peakFlow: 78.3,
-              duration: 8.5
-            },
-            monthly: {
-              liters: 32560.5,
-              bill: 489.75,
-              avgDaily: 1085.35,
-              trend: 12.5
-            }
-          },
-          
-          alerts: [
-            {
-              id: "alert1",
-              type: "high_usage",
-              severity: "high",
-              title: "High Water Usage Alert",
-              message: "Water consumption exceeded 1000L in 6 hours. Current usage: 1256L",
-              timestamp: "2025-12-06T14:30:45Z",
-              status: "active",
-              source: "Main Flow Meter",
-              threshold: 1000,
-              currentValue: 1256.8,
-              unit: "liters",
-              actions: ["Acknowledge", "Adjust Threshold", "View Details"],
-              read: false
-            },
-            {
-              id: "alert2",
-              type: "leak_detected",
-              severity: "critical",
-              title: "Possible Leak Detected",
-              message: "Continuous water flow detected for 2 hours with no usage activity",
-              timestamp: "2025-12-05T22:15:30Z",
-              status: "resolved",
-              source: "Kitchen Sensor",
-              duration: "2 hours",
-              flowRate: "8.5 L/min",
-              actions: ["Mark as Resolved", "Schedule Inspection", "Contact Support"],
-              read: true
-            }
-          ],
-          
-          activityLog: [
-            {
-              id: "activity1",
-              action: "Received High Water Usage Alert",
-              timestamp: "2025-12-07T14:30:45Z",
-              details: "Water consumption exceeded 1000L in 6 hours",
-              type: "alert_triggered",
-              alertId: "alert1"
-            }
-          ],
-          
-          connectedDevices: [
-            {
-              id: "device1",
-              name: "Smart Flow Meter 01",
-              type: "flow_meter",
-              model: "FlowSync Pro",
-              location: "Main Inlet",
-              status: "online",
-              currentFlow: "45.2 L/min",
-              totalToday: "856.4 L",
-              pressure: "3.2 Bar",
-              temperature: "28.5°C",
-              battery: 85,
-              signal: "excellent",
-              connectedSince: "2025-11-20T09:15:00Z",
-              firmware: "v2.1.5"
-            }
-          ]
-        },
-        {
-          id: "user2",
-          email: "john.doe@example.com",
-          fullName: "John Doe",
-          phoneNumber: "+639123456789",
-          createdAt: "2025-11-15T10:30:00Z",
-          lastLogin: "2025-12-06T08:45:22Z",
-          isEmailVerified: true,
-          status: "active",
-          hasLinkedDevices: true,
-          waterFlowData: {
-            currentFlowRate: 32.7,
-            todayUsage: 890.3,
-            todayBill: 13.25,
-            pressure: 2.8,
-            temperature: 26.5,
-            peakFlow: 56.8
-          },
-          waterUsage: {
-            today: {
-              liters: 890.3,
-              bill: 13.25,
-              flowRate: 32.7,
-              peakFlow: 56.8,
-              duration: 6.2
-            },
-            monthly: {
-              liters: 24580.2,
-              bill: 368.75,
-              avgDaily: 819.34,
-              trend: 5.3
-            }
-          }
-        }
-      ];
+      const stats = await RealtimeUserService.getUserStats();
+      setUserStats(stats);
+    } catch (error) {
+      console.error('Error loading user stats:', error);
+    }
+  };
 
-      setMobileUsers(mockUsers);
+  // Load admin data
+  useEffect(() => {
+    const data = localStorage.getItem('admin_user');
+    if (data) {
+      setUserData(JSON.parse(data));
+    }
+  }, []);
+
+  // Initialize real-time subscription
+  useEffect(() => {
+    setLoading(true);
+    
+    // Load user stats
+    loadUserStats();
+    
+    // Clean up previous subscription
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+    }
+
+    // Subscribe to real-time user data
+    unsubscribeRef.current = RealtimeUserService.subscribeToAllUsers((users: ProcessedUser[]) => {
+      // Cast users to ExtendedUser type
+      const extendedUsers = users as ExtendedUser[];
+      setMobileUsers(extendedUsers);
+      setRealtimeConnected(true);
+      setLoading(false);
       
-      // Update stats based on loaded users
-      const activeAlerts = mockUsers.reduce((sum, user) => sum + (user.alerts?.filter((a: any) => a.status === 'active').length || 0), 0);
-      const onlineDevices = mockUsers.reduce((sum, user) => sum + (user.connectedDevices?.filter((d: any) => d.status === 'online').length || 0), 0);
-      const activeUsers = mockUsers.filter(u => u.status === 'active' || !u.status).length;
-      const verifiedUsers = mockUsers.filter(u => u.isEmailVerified).length;
+      // Update selected user if it's in the list
+      if (selectedUser) {
+        const updatedSelectedUser = extendedUsers.find(u => u.id === selectedUser.id);
+        if (updatedSelectedUser) {
+          setSelectedUser(updatedSelectedUser);
+        }
+      }
 
+      // Update stats - safely access connectedDevices
+      const activeAlerts = extendedUsers.reduce((sum, user) => sum + (user.alerts?.filter((a: any) => !a.read).length || 0), 0);
+      const onlineDevices = extendedUsers.reduce((sum, user) => {
+        const devices = user.connectedDevices || [];
+        return sum + devices.filter((d: any) => d.status === 'online').length;
+      }, 0);
+      const activeUsers = extendedUsers.filter(u => u.status === 'active' || !u.status).length;
+      
       setStats(prev => ({
         ...prev,
         activeAlerts,
         devices: onlineDevices,
         users: activeUsers
       }));
+    });
 
-    } catch (error) {
-      console.error('Error loading users:', error);
-    } finally {
-      setLoading(false);
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
+  }, []);
+
+  // Filter users whenever search or filter changes
+  useEffect(() => {
+    let filtered = mobileUsers;
+    
+    // Apply search filter
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter(user => {
+        return (
+          (user.fullName?.toLowerCase().includes(searchLower) || false) ||
+          user.email.toLowerCase().includes(searchLower) ||
+          (user.username?.toLowerCase().includes(searchLower) || false) ||
+          (user.phoneNumber?.toLowerCase().includes(searchLower) || false)
+        );
+      });
     }
-  };
+    
+    // Apply status filter
+    if (filter !== 'all') {
+      switch (filter) {
+        case 'verified':
+          filtered = filtered.filter(user => user.isEmailVerified);
+          break;
+        case 'withDevices':
+          filtered = filtered.filter(user => user.hasLinkedDevices);
+          break;
+        case 'active':
+          filtered = filtered.filter(user => user.status === 'active');
+          break;
+        case 'inactive':
+          filtered = filtered.filter(user => user.status === 'inactive');
+          break;
+        case 'withAlerts':
+          filtered = filtered.filter(user => (user.alerts?.filter((a: any) => !a.read).length || 0) > 0);
+          break;
+        case 'highPressure':
+          filtered = filtered.filter(user => {
+            if (!user.waterFlowData?.pressure) return false;
+            const assessment = getPressureAssessment(user.waterFlowData.pressure);
+            return assessment?.level === 'High' || assessment?.level === 'Very High';
+          });
+          break;
+      }
+    }
+    
+    setFilteredUsers(filtered);
+  }, [searchQuery, filter, mobileUsers]);
 
   // Handle user click
-  const handleUserClick = (user: any) => {
+  const handleUserClick = (user: ExtendedUser) => {
     setSelectedUser(user);
     setShowUserDetails(true);
     setActiveTab('overview');
@@ -384,14 +403,13 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [selectedUser, showUserDetails]);
 
-  // UPDATED: Removed System Health and System Uptime cards
   const statCards = [
     {
       title: 'Active Devices',
       value: stats.devices,
       icon: <Cpu size={24} />,
       color: '#0ea5e9',
-      change: `${mobileUsers.reduce((sum, user) => sum + (user.connectedDevices?.length || 0), 0)} total`
+      change: `${mobileUsers.reduce((sum, user) => sum + ((user.connectedDevices || []).length || 0), 0)} total`
     },
     {
       title: 'System Alerts',
@@ -407,7 +425,6 @@ export default function DashboardPage() {
       color: '#8b5cf6',
       change: `${mobileUsers.length} registered`
     },
-
   ];
 
   if (loading) {
@@ -419,6 +436,7 @@ export default function DashboardPage() {
         height: '100vh',
         color: 'white'
       }}>
+        <Loader2 size={24} className="animate-spin mr-2" />
         Loading dashboard data...
       </div>
     );
@@ -426,6 +444,38 @@ export default function DashboardPage() {
 
   return (
     <div style={{ padding: '0 1rem 2rem 1rem' }}>
+      {/* Real-time connection indicator */}
+      <div style={{
+        position: 'fixed',
+        top: '1rem',
+        right: '1rem',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        background: realtimeConnected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+        border: `1px solid ${realtimeConnected ? '#10b981' : '#f59e0b'}`,
+        borderRadius: '20px',
+        padding: '6px 12px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        {realtimeConnected ? (
+          <>
+            <Wifi size={14} color="#10b981" />
+            <span style={{ color: '#10b981', fontSize: '12px', fontWeight: '500' }}>
+              Live from Mobile App
+            </span>
+          </>
+        ) : (
+          <>
+            <WifiOff size={14} color="#f59e0b" />
+            <span style={{ color: '#f59e0b', fontSize: '12px', fontWeight: '500' }}>
+              Connecting...
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Header */}
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ 
@@ -466,7 +516,7 @@ export default function DashboardPage() {
             }} />
             <input
               type="text"
-              placeholder="Search users..."
+              placeholder="Search users by name, email, or phone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
@@ -476,7 +526,8 @@ export default function DashboardPage() {
                 border: '1px solid rgba(148, 163, 184, 0.3)',
                 borderRadius: '10px',
                 color: 'white',
-                fontSize: '14px'
+                fontSize: '14px',
+                outline: 'none'
               }}
             />
           </div>
@@ -491,18 +542,20 @@ export default function DashboardPage() {
               borderRadius: '10px',
               color: 'white',
               fontSize: '14px',
-              minWidth: '150px'
+              minWidth: '150px',
+              outline: 'none',
+              cursor: 'pointer'
             }}
           >
             <option value="all">All Users</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
             <option value="verified">Verified</option>
             <option value="withDevices">With Devices</option>
-            <option value="highUsage">High Water Usage</option>
             <option value="withAlerts">With Active Alerts</option>
+            <option value="highPressure">High Pressure</option>
           </select>
         </div>
-        
-        
       </div>
 
       {/* Stats Grid */}
@@ -526,11 +579,9 @@ export default function DashboardPage() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-5px)';
-              e.currentTarget.style.boxShadow = `0 20px 40px ${stat.color}15`;
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -562,39 +613,55 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Main Content Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
-        {/* Left Column */}
-        <div>
-          {/* Users List */}
-          <div style={{
-            background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-            borderRadius: '20px',
-            padding: '1.5rem',
-            marginBottom: '1.5rem',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ color: 'white', fontSize: '1.25rem', fontWeight: '600' }}>
-                System Users
-              </h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Shield size={14} style={{ color: '#10b981' }} />
-                  <span style={{ color: '#94a3b8', fontSize: '12px' }}>
-                    {mobileUsers.filter(u => u.isEmailVerified).length} verified
-                  </span>
-                </div>
-                <div style={{ color: '#64748b' }}>•</div>
-                <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                  {mobileUsers.length} total
-                </div>
-              </div>
+      {/* Users List */}
+      <div style={{
+        background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+        border: '1px solid rgba(148, 163, 184, 0.2)',
+        borderRadius: '20px',
+        padding: '1.5rem',
+        marginBottom: '1.5rem',
+        backdropFilter: 'blur(12px)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <h2 style={{ color: 'white', fontSize: '1.25rem', fontWeight: '600' }}>
+            Mobile App Users ({filteredUsers.length})
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Shield size={14} style={{ color: '#10b981' }} />
+              <span style={{ color: '#94a3b8', fontSize: '12px' }}>
+                {mobileUsers.filter(u => u.isEmailVerified).length} verified
+              </span>
             </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {mobileUsers.map((user) => (
+            <div style={{ color: '#64748b' }}>•</div>
+            <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+              {mobileUsers.length} total
+            </div>
+          </div>
+        </div>
+        
+        {filteredUsers.length === 0 ? (
+          <div style={{ 
+            padding: '3rem', 
+            textAlign: 'center',
+            color: '#94a3b8'
+          }}>
+            <Users size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
+            <div style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+              No users found
+            </div>
+            <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>
+              {searchQuery ? 'Try a different search term' : 'No users match the selected filter'}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {filteredUsers.map((user) => {
+              const pressureColor = getPressureColor(user.waterFlowData?.pressure || 0);
+              const profileImage = user.displayPhotoUrl || user.photoURL || user.profileImageUrl;
+              const hasProfileImage = profileImage && profileImage.startsWith('http');
+              
+              return (
                 <div 
                   key={user.id}
                   onClick={() => handleUserClick(user)}
@@ -619,7 +686,7 @@ export default function DashboardPage() {
                   }}
                 >
                   {/* Alert Indicator Badge */}
-                  {user.alerts?.filter((a: any) => !a.read).length > 0 && (
+                  {user.alerts && user.alerts.filter((a: any) => !a.read).length > 0 && (
                     <div style={{
                       position: 'absolute',
                       top: '-6px',
@@ -636,7 +703,7 @@ export default function DashboardPage() {
                       fontWeight: '600',
                       border: '2px solid rgba(15, 23, 42, 0.95)'
                     }}>
-                      {user.alerts.filter((a: any) => !a.read).length}
+                      {user.alerts?.filter((a: any) => !a.read).length || 0}
                     </div>
                   )}
                   
@@ -651,9 +718,22 @@ export default function DashboardPage() {
                     justifyContent: 'center',
                     fontWeight: '600',
                     fontSize: '14px',
-                    position: 'relative'
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}>
-                    {getInitials(user.fullName)}
+                    {hasProfileImage ? (
+                      <img 
+                        src={profileImage}
+                        alt={user.fullName || user.email}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover'
+                        }}
+                      />
+                    ) : (
+                      getInitials(user.fullName)
+                    )}
                     {user.isEmailVerified && (
                       <div style={{
                         position: 'absolute',
@@ -676,8 +756,57 @@ export default function DashboardPage() {
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
-                          {user.fullName}
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px',
+                          marginBottom: '2px'
+                        }}>
+                          <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
+                            {user.fullName || 'Unknown User'}
+                          </div>
+                          {user.role === 'admin' && (
+                            <span style={{
+                              padding: '2px 6px',
+                              background: 'rgba(245, 158, 11, 0.15)',
+                              color: '#f59e0b',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: '600'
+                            }}>
+                              Admin
+                            </span>
+                          )}
+                          {user.role === 'super_admin' && (
+                            <span style={{
+                              padding: '2px 6px',
+                              background: 'rgba(139, 92, 246, 0.15)',
+                              color: '#8b5cf6',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: '600'
+                            }}>
+                              Super Admin
+                            </span>
+                          )}
+                          <span style={{
+                            padding: '2px 6px',
+                            background: user.status === 'active' 
+                              ? 'rgba(16, 185, 129, 0.15)' 
+                              : user.status === 'inactive'
+                              ? 'rgba(245, 158, 11, 0.15)'
+                              : 'rgba(239, 68, 68, 0.15)',
+                            color: user.status === 'active' 
+                              ? '#10b981' 
+                              : user.status === 'inactive'
+                              ? '#f59e0b'
+                              : '#ef4444',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                          }}>
+                            {user.status}
+                          </span>
                         </div>
                         <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>
                           {user.email}
@@ -686,10 +815,10 @@ export default function DashboardPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                           <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '500' }}>
-                            Last Login
+                            Last Active
                           </div>
                           <div style={{ color: '#0ea5e9', fontSize: '12px', fontWeight: '600' }}>
-                            {getTimeAgo(user.lastLogin)}
+                            {getTimeAgo(user.lastActivity || user.lastLogin || user.createdAt)}
                           </div>
                         </div>
                         <ArrowUpRight size={16} style={{ color: '#94a3b8' }} />
@@ -699,242 +828,33 @@ export default function DashboardPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <Phone size={12} style={{ color: '#94a3b8' }} />
-                        <span style={{ color: '#cbd5e1', fontSize: '12px' }}>{user.phoneNumber}</span>
+                        <span style={{ color: '#cbd5e1', fontSize: '12px' }}>
+                          {formatPhoneNumber(user.phoneNumber)}
+                        </span>
                       </div>
                       {user.waterFlowData && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <Droplets size={12} style={{ color: '#94a3b8' }} />
                           <span style={{ color: '#cbd5e1', fontSize: '12px' }}>
-                            {user.waterFlowData.currentFlowRate.toFixed(1)} L/min
+                            {user.waterFlowData.currentFlowRate?.toFixed(1) || '0.0'} L/min
                           </span>
                         </div>
                       )}
-                      {user.alerts && user.alerts.length > 0 && (
+                      {user.waterFlowData?.pressure && user.waterFlowData.pressure > 0 && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Bell size={12} style={{ color: '#ef4444' }} />
-                          <span style={{ color: '#cbd5e1', fontSize: '12px' }}>
-                            {user.alerts.filter((a: any) => !a.read).length} active
+                          <Gauge size={12} style={{ color: pressureColor }} />
+                          <span style={{ color: pressureColor, fontSize: '12px' }}>
+                            {user.waterFlowData.pressure.toFixed(1)} Bar
                           </span>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-
-          {/* Quick Actions */}
-          <div style={{
-            background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-            borderRadius: '20px',
-            padding: '1.5rem',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <h2 style={{ color: 'white', fontSize: '1.25rem', fontWeight: '600', marginBottom: '1.5rem' }}>
-              Quick Actions
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-              <button style={{
-                padding: '1rem',
-                background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.1) 0%, rgba(14, 165, 233, 0.05) 100%)',
-                border: '1px solid rgba(14, 165, 233, 0.3)',
-                borderRadius: '12px',
-                color: '#0ea5e9',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                transition: 'all 0.2s ease'
-              }}>
-                <Zap size={18} />
-                System Scan
-              </button>
-              <button style={{
-                padding: '1rem',
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                borderRadius: '12px',
-                color: '#10b981',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                transition: 'all 0.2s ease'
-              }}>
-                <BarChart3 size={18} />
-                Generate Report
-              </button>
-              <button style={{
-                padding: '1rem',
-                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%)',
-                border: '1px solid rgba(139, 92, 246, 0.3)',
-                borderRadius: '12px',
-                color: '#8b5cf6',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                transition: 'all 0.2s ease'
-              }}>
-                <Settings size={18} />
-                Settings
-              </button>
-              <button style={{
-                padding: '1rem',
-                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '12px',
-                color: '#ef4444',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                transition: 'all 0.2s ease'
-              }}>
-                <Shield size={18} />
-                Security Audit
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column - Account Info & System Status */}
-        <div>
-          {/* Account Information */}
-          <div style={{
-            background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-            borderRadius: '20px',
-            padding: '1.5rem',
-            marginBottom: '1.5rem',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <h2 style={{ color: 'white', fontSize: '1.25rem', fontWeight: '600', marginBottom: '1.5rem' }}>
-              Account Information
-            </h2>
-            
-            {userData ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-                  <div style={{
-                    width: '60px',
-                    height: '60px',
-                    borderRadius: '12px',
-                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: '700',
-                    fontSize: '20px',
-                    boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    flexShrink: 0,
-                  }}>
-                    {userData.name?.charAt(0) || 'A'}
-                  </div>
-                  <div>
-                    <div style={{ color: 'white', fontSize: '18px', fontWeight: '600' }}>
-                      {userData.name || 'Super Administrator'}
-                    </div>
-                    <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-                      {userData.email}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '14px' }}>Role</span>
-                    <span style={{ 
-                      color: '#8b5cf6', 
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      background: 'rgba(139, 92, 246, 0.1)',
-                      padding: '4px 12px',
-                      borderRadius: '20px'
-                    }}>
-                      {userData.role?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '14px' }}>Last Login</span>
-                    <span style={{ color: 'white', fontSize: '14px' }}>
-                      {new Date(userData.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '14px' }}>Session Duration</span>
-                    <span style={{ color: 'white', fontSize: '14px' }}>Active</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
-                No user data found
-              </div>
-            )}
-          </div>
-
-          {/* System Status */}
-          <div style={{
-            background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-            borderRadius: '20px',
-            padding: '1.5rem',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <h2 style={{ color: 'white', fontSize: '1.25rem', fontWeight: '600', marginBottom: '1.5rem' }}>
-              System Status
-            </h2>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#94a3b8', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Wifi size={14} />
-                  Network
-                </span>
-                <span style={{ color: '#10b981', fontSize: '14px', fontWeight: '600' }}>Stable</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#94a3b8', fontSize: '14px' }}>Database</span>
-                <span style={{ color: '#10b981', fontSize: '14px', fontWeight: '600' }}>Healthy</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#94a3b8', fontSize: '14px' }}>API Services</span>
-                <span style={{ color: '#10b981', fontSize: '14px', fontWeight: '600' }}>Operational</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#94a3b8', fontSize: '14px' }}>Water Flow API</span>
-                <span style={{ color: '#10b981', fontSize: '14px', fontWeight: '600' }}>Active</span>
-              </div>
-            </div>
-
-            <div style={{ 
-              marginTop: '1.5rem', 
-              padding: '1rem',
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              borderRadius: '12px',
-              textAlign: 'center'
-            }}>
-              <div style={{ color: '#10b981', fontSize: '14px', fontWeight: '600' }}>
-                ✓ All Systems Operational
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* User Details Modal */}
@@ -995,7 +915,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h3 style={{ color: 'white', fontSize: '1.5rem', fontWeight: '600', margin: 0 }}>
-                    {selectedUser.fullName}
+                    {selectedUser.fullName || 'Unknown User'}
                   </h3>
                   <p style={{ color: '#94a3b8', fontSize: '14px', margin: '4px 0 0 0' }}>
                     {selectedUser.email}
@@ -1047,7 +967,7 @@ export default function DashboardPage() {
               borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
               padding: '0 1.5rem'
             }}>
-              {['overview', 'activity', 'alerts', 'devices', 'security'].map((tab) => (
+              {['overview', 'activity', 'alerts', 'devices', 'profile'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as any)}
@@ -1072,7 +992,7 @@ export default function DashboardPage() {
                   {tab === 'activity' && <History size={16} />}
                   {tab === 'alerts' && <Bell size={16} />}
                   {tab === 'devices' && <Smartphone size={16} />}
-                  {tab === 'security' && <Shield size={16} />}
+                  {tab === 'profile' && <UserCheck size={16} />}
                   {tab.replace('-', ' ')}
                   
                   {/* Alert Count Badge on Alerts Tab */}
@@ -1101,274 +1021,263 @@ export default function DashboardPage() {
 
             {/* Modal Content */}
             <div style={{ padding: '1.5rem' }}>
-              {activeTab === 'overview' && selectedUser.waterFlowData && (
+              {activeTab === 'overview' && selectedUser && selectedUser.waterFlowData && (
                 <div style={{ display: 'grid', gap: '1.5rem' }}>
-                  {/* Real-time Water Flow Monitoring Tiles */}
-                  <div>
-                    <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
-                      Real-time Water Flow Monitoring
-                    </h4>
+                  {/* CURRENT FLOW RATE CARD */}
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '20px',
+                    padding: '1.5rem',
+                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        fontWeight: '600', 
+                        color: '#94a3b8',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase'
+                      }}>
+                        CURRENT FLOW RATE
+                      </div>
+                      <div style={{
+                        padding: '6px 12px',
+                        background: selectedUser.waterFlowData?.currentFlowRate > 10 ? 
+                                  'rgba(239, 68, 68, 0.2)' : 
+                                  selectedUser.waterFlowData?.currentFlowRate > 5 ? 
+                                  'rgba(245, 158, 11, 0.2)' : 
+                                  'rgba(16, 185, 129, 0.2)',
+                        border: `1px solid ${selectedUser.waterFlowData?.currentFlowRate > 10 ? 
+                                'rgba(239, 68, 68, 0.5)' : 
+                                selectedUser.waterFlowData?.currentFlowRate > 5 ? 
+                                'rgba(245, 158, 11, 0.5)' : 
+                                'rgba(16, 185, 129, 0.5)'}`,
+                        borderRadius: '12px'
+                      }}>
+                        <div style={{ 
+                          fontSize: '12px', 
+                          fontWeight: '600', 
+                          color: selectedUser.waterFlowData?.currentFlowRate > 10 ? 
+                                '#ef4444' : 
+                                selectedUser.waterFlowData?.currentFlowRate > 5 ? 
+                                '#f59e0b' : 
+                                '#10b981'
+                        }}>
+                          {selectedUser.waterFlowData?.currentFlowRate > 10 ? 
+                          'HIGH' : 
+                          selectedUser.waterFlowData?.currentFlowRate > 5 ? 
+                          'MEDIUM' : 'LOW'}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <div>
+                        <div style={{ 
+                          fontSize: '3rem', 
+                          fontWeight: 'bold', 
+                          color: 'white',
+                          lineHeight: '1'
+                        }}>
+                          {selectedUser.waterFlowData?.currentFlowRate.toFixed(1) || '0.0'}
+                        </div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          color: '#94a3b8',
+                          marginTop: '4px'
+                        }}>
+                          Liters per minute
+                        </div>
+                      </div>
+                      
+                      <div style={{
+                        width: '80px',
+                        height: '80px',
+                        borderRadius: '50%',
+                        background: selectedUser.waterFlowData?.currentFlowRate > 10 ? 
+                                  'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' :
+                                  selectedUser.waterFlowData?.currentFlowRate > 5 ? 
+                                  'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' :
+                                  'linear-gradient(135deg, #0ea5e9 0%, #1d4ed8 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        {selectedUser.waterFlowData?.currentFlowRate > 10 ? (
+                          <AlertTriangle size={32} style={{ color: 'white' }} />
+                        ) : selectedUser.waterFlowData?.currentFlowRate > 5 ? (
+                          <TrendingUp size={32} style={{ color: 'white' }} />
+                        ) : (
+                          <Waves size={32} style={{ color: 'white' }} />
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div style={{ 
+                      height: '1px', 
+                      background: 'rgba(148, 163, 184, 0.1)', 
+                      margin: '1rem 0' 
+                    }}></div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                        Last update
+                      </div>
+                      <div style={{ 
+                        fontSize: '12px', 
+                        fontWeight: '600', 
+                        color: '#0ea5e9' 
+                      }}>
+                        {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* MONTHLY BILLING CARD */}
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '20px',
+                    padding: '1.5rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
+                      <div style={{
+                        padding: '8px',
+                        background: 'rgba(14, 165, 233, 0.2)',
+                        borderRadius: '10px'
+                      }}>
+                        <DollarSign size={20} style={{ color: '#0ea5e9' }} />
+                      </div>
+                      <div style={{ 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
+                        color: 'white' 
+                      }}>
+                        Monthly Billing
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          color: '#94a3b8',
+                          marginBottom: '4px'
+                        }}>
+                          Current Bill
+                        </div>
+                        <div style={{ 
+                          fontSize: '2rem', 
+                          fontWeight: 'bold', 
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: '4px'
+                        }}>
+                          <span style={{ fontSize: '1rem', color: '#94a3b8' }}>₱</span>
+                          {selectedUser.waterFlowData?.todayBill ? (selectedUser.waterFlowData.todayBill * 30).toFixed(2) : '0.00'}
+                        </div>
+                      </div>
+                      
+                      <button style={{
+                        padding: '8px 16px',
+                        background: 'linear-gradient(135deg, #0ea5e9 0%, #1d4ed8 100%)',
+                        border: 'none',
+                        borderRadius: '12px',
+                        color: 'white',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }}>
+                        View Details
+                      </button>
+                    </div>
+                    
+                    <div style={{ 
+                      height: '1px', 
+                      background: 'rgba(148, 163, 184, 0.1)', 
+                      margin: '1rem 0' 
+                    }}></div>
                     
                     <div style={{ 
                       display: 'grid', 
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-                      gap: '1.5rem',
-                      marginBottom: '1.5rem'
+                      gridTemplateColumns: 'repeat(3, 1fr)', 
+                      gap: '1rem',
+                      textAlign: 'center'
                     }}>
-                      {/* Current Water Flow */}
-                      <div style={{
-                        background: 'rgba(30, 41, 59, 0.5)',
-                        border: `1px solid ${getFlowColor(selectedUser.waterFlowData.currentFlowRate)}40`,
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          position: 'absolute',
-                          top: '-20px',
-                          right: '-20px',
-                          width: '80px',
-                          height: '80px',
-                          background: 'rgba(14, 165, 233, 0.1)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: 0.3
-                        }}>
-                          <Waves size={40} style={{ color: '#0ea5e9' }} />
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(14, 165, 233, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#0ea5e9'
-                          }}>
-                            <Waves size={20} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Current Flow Rate</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: getFlowColor(selectedUser.waterFlowData.currentFlowRate) }}>
-                              {selectedUser.waterFlowData.currentFlowRate.toFixed(1)} <span style={{ fontSize: '1rem' }}>L/min</span>
-                            </div>
-                          </div>
-                        </div>
-                        
+                      <div>
                         <div style={{ 
-                          height: '4px', 
-                          background: 'rgba(148, 163, 184, 0.2)', 
-                          borderRadius: '2px',
-                          margin: '0.5rem 0'
+                          fontSize: '14px', 
+                          fontWeight: '600', 
+                          color: 'white',
+                          marginBottom: '4px'
                         }}>
-                          <div style={{
-                            width: `${Math.min(100, (selectedUser.waterFlowData.currentFlowRate / 100) * 100)}%`,
-                            height: '100%',
-                            background: `linear-gradient(90deg, ${getFlowColor(selectedUser.waterFlowData.currentFlowRate)} 0%, #0ea5e9 100%)`,
-                            borderRadius: '2px'
-                          }} />
+                          ₱{selectedUser.waterFlowData?.todayBill?.toFixed(2) || '0.00'}
                         </div>
-                        
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <span>Peak: {selectedUser.waterFlowData.peakFlow.toFixed(1)} L/min</span>
-                          <span style={{ color: '#0ea5e9' }}>Live</span>
+                        <div style={{ 
+                          fontSize: '10px', 
+                          color: '#94a3b8',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          Today's Bill
                         </div>
                       </div>
-
-                      {/* Today's Water Usage */}
-                      <div style={{
-                        background: 'rgba(30, 41, 59, 0.5)',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          position: 'absolute',
-                          top: '-20px',
-                          right: '-20px',
-                          width: '80px',
-                          height: '80px',
-                          background: 'rgba(16, 185, 129, 0.1)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: 0.3
+                      
+                      <div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          fontWeight: '600', 
+                          color: 'white',
+                          marginBottom: '4px'
                         }}>
-                          <BarChart3 size={40} style={{ color: '#10b981' }} />
+                          {selectedUser.waterFlowData?.todayUsage ? (selectedUser.waterFlowData.todayUsage / 1000).toFixed(1) : '0.0'} m³
                         </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(16, 185, 129, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#10b981'
-                          }}>
-                            <BarChart3 size={20} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Water Usage</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
-                              {formatLiters(selectedUser.waterFlowData.todayUsage)}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                            <span style={{ color: '#10b981', fontWeight: '500' }}>+12.5%</span> from yesterday
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                            Avg: {formatLiters(selectedUser.waterFlowData.todayUsage / 24)}
-                          </div>
+                        <div style={{ 
+                          fontSize: '10px', 
+                          color: '#94a3b8',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          Water Used
                         </div>
                       </div>
-
-                      {/* Today's Water Bill */}
-                      <div style={{
-                        background: 'rgba(30, 41, 59, 0.5)',
-                        border: '1px solid rgba(245, 158, 11, 0.2)',
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          position: 'absolute',
-                          top: '-20px',
-                          right: '-20px',
-                          width: '80px',
-                          height: '80px',
-                          background: 'rgba(245, 158, 11, 0.1)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: 0.3
+                      
+                      <div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          fontWeight: '600', 
+                          color: 'white',
+                          marginBottom: '4px'
                         }}>
-                          <DollarSign size={40} style={{ color: '#f59e0b' }} />
+                          ₱{selectedUser.waterFlowData?.todayBill ? (selectedUser.waterFlowData.todayBill * 30).toFixed(2) : '0.00'}
                         </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(245, 158, 11, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#f59e0b'
-                          }}>
-                            <DollarSign size={20} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Today's Water Bill</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
-                              ₱{selectedUser.waterFlowData.todayBill.toFixed(2)}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                            <span style={{ color: '#10b981', fontWeight: '500' }}>Projected:</span> ₱{(selectedUser.waterFlowData.todayBill * 30).toFixed(2)}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                            Rate: ₱0.015/L
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* System Pressure & Temperature */}
-                      <div style={{
-                        background: 'rgba(30, 41, 59, 0.5)',
-                        border: '1px solid rgba(139, 92, 246, 0.2)',
-                        borderRadius: '16px',
-                        padding: '1.5rem',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          position: 'absolute',
-                          top: '-20px',
-                          right: '-20px',
-                          width: '80px',
-                          height: '80px',
-                          background: 'rgba(139, 92, 246, 0.1)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: 0.3
+                        <div style={{ 
+                          fontSize: '10px', 
+                          color: '#94a3b8',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
                         }}>
-                          <Gauge size={40} style={{ color: '#8b5cf6' }} />
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(139, 92, 246, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#8b5cf6'
-                          }}>
-                            <Gauge size={20} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>System Pressure</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'white' }}>
-                              {selectedUser.waterFlowData.pressure.toFixed(1)} <span style={{ fontSize: '1rem' }}>Bar</span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'rgba(59, 130, 246, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#3b82f6'
-                          }}>
-                            <Thermometer size={20} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Water Temperature</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '600', color: 'white' }}>
-                              {selectedUser.waterFlowData.temperature.toFixed(1)}°C
-                            </div>
-                          </div>
+                          Monthly Total
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Account Information */}
+                  {/* ACCOUNT INFORMATION SECTION */}
                   <div style={{
-                    background: 'rgba(30, 41, 59, 0.5)',
-                    borderRadius: '12px',
-                    padding: '1.5rem',
-                    border: '1px solid rgba(148, 163, 184, 0.2)'
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '20px',
+                    padding: '1.5rem'
                   }}>
                     <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
                       Account Information
@@ -1381,7 +1290,7 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Phone</label>
-                        <div style={{ color: 'white', fontSize: '14px' }}>{selectedUser.phoneNumber}</div>
+                        <div style={{ color: 'white', fontSize: '14px' }}>{formatPhoneNumber(selectedUser.phoneNumber)}</div>
                       </div>
                       <div>
                         <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Account Created</label>
@@ -1396,9 +1305,12 @@ export default function DashboardPage() {
                         <div style={{ 
                           color: selectedUser.isEmailVerified ? '#10b981' : '#ef4444',
                           fontSize: '14px',
-                          fontWeight: '500'
+                          fontWeight: '500',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
                         }}>
-                          {selectedUser.isEmailVerified ? 'Yes ✓' : 'No ✗'}
+                          {selectedUser.isEmailVerified ? '✓ Verified' : '✗ Not Verified'}
                         </div>
                       </div>
                       <div>
@@ -1424,13 +1336,13 @@ export default function DashboardPage() {
                       Activity Log
                     </h4>
                     <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                      Showing {selectedUser.activityLog?.length || 0} activities
+                      Showing {(selectedUser as any)?.activityLog?.length || 0} activities
                     </div>
                   </div>
                   
-                  {selectedUser.activityLog && selectedUser.activityLog.length > 0 ? (
+                  {(selectedUser as any)?.activityLog && (selectedUser as any).activityLog.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {selectedUser.activityLog.map((activity: any) => (
+                      {(selectedUser as any).activityLog.map((activity: any) => (
                         <div 
                           key={activity.id}
                           onClick={() => activity.alertId && handleAlertClick(
@@ -1465,13 +1377,13 @@ export default function DashboardPage() {
                             height: '32px',
                             borderRadius: '8px',
                             background: activity.type?.includes('alert') ? 
-                                       activity.type === 'alert_triggered' ? 'rgba(239, 68, 68, 0.1)' :
-                                       activity.type === 'alert_acknowledged' ? 'rgba(245, 158, 11, 0.1)' :
-                                       activity.type === 'alert_resolved' ? 'rgba(16, 185, 129, 0.1)' :
-                                       'rgba(14, 165, 233, 0.1)' :
-                                       activity.type === 'water_settings' ? 'rgba(14, 165, 233, 0.1)' : 
-                                       activity.type === 'device_link' ? 'rgba(16, 185, 129, 0.1)' : 
-                                       activity.type === 'billing' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(139, 92, 246, 0.1)',
+                                      activity.type === 'alert_triggered' ? 'rgba(239, 68, 68, 0.1)' :
+                                      activity.type === 'alert_acknowledged' ? 'rgba(245, 158, 11, 0.1)' :
+                                      activity.type === 'alert_resolved' ? 'rgba(16, 185, 129, 0.1)' :
+                                      'rgba(14, 165, 233, 0.1)' :
+                                      activity.type === 'water_settings' ? 'rgba(14, 165, 233, 0.1)' : 
+                                      activity.type === 'device_link' ? 'rgba(16, 185, 129, 0.1)' : 
+                                      activity.type === 'billing' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(139, 92, 246, 0.1)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1684,121 +1596,653 @@ export default function DashboardPage() {
                   padding: '1.5rem',
                   border: '1px solid rgba(148, 163, 184, 0.2)'
                 }}>
-                  <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
-                    Connected Devices ({selectedUser.connectedDevices?.length || 0})
-                  </h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600' }}>
+                      Connected Devices ({(selectedUser.connectedDevices || []).length})
+                    </h4>
+                    <div style={{ 
+                      padding: '4px 12px', 
+                      background: selectedUser.hasLinkedDevices ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)', 
+                      color: selectedUser.hasLinkedDevices ? '#10b981' : '#94a3b8',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '500'
+                    }}>
+                      {selectedUser.hasLinkedDevices ? 'Connected' : 'No Devices'}
+                    </div>
+                  </div>
                   
-                  {selectedUser.connectedDevices && selectedUser.connectedDevices.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                      {selectedUser.connectedDevices.map((device: any) => (
-                        <div key={device.id} style={{
-                          padding: '1rem',
-                          background: 'rgba(255, 255, 255, 0.03)',
-                          borderRadius: '10px',
-                          border: `1px solid ${device.status === 'online' ? '#10b98140' : '#6b728040'}`
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                            <div style={{
-                              width: '40px',
-                              height: '40px',
-                              borderRadius: '8px',
-                              background: device.status === 'online' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: device.status === 'online' ? '#10b981' : '#6b7280'
-                            }}>
-                              <Smartphone size={20} />
+                  {/* Check if user has linked devices */}
+                  {selectedUser.hasLinkedDevices ? (
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
+                      gap: '1rem' 
+                    }}>
+                      {/* Check if there are actual devices data */}
+                      {selectedUser.connectedDevices && selectedUser.connectedDevices.length > 0 ? (
+                        selectedUser.connectedDevices.map((device) => (
+                          <div key={device.id} style={{
+                            padding: '1rem',
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            borderRadius: '10px',
+                            border: `1px solid ${device.status === 'online' ? '#10b98140' : '#6b728040'}`
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                              <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '8px',
+                                background: device.status === 'online' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: device.status === 'online' ? '#10b981' : '#6b7280'
+                              }}>
+                                <Smartphone size={20} />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>{device.name || 'Unknown Device'}</div>
+                                <div style={{ color: '#94a3b8', fontSize: '12px' }}>{device.model || 'No model info'}</div>
+                              </div>
+                              <div style={{
+                                padding: '4px 8px',
+                                background: device.status === 'online' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                color: device.status === 'online' ? '#10b981' : '#6b7280',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                              }}>
+                                {device.status || 'unknown'}
+                              </div>
                             </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>{device.name}</div>
-                              <div style={{ color: '#94a3b8', fontSize: '12px' }}>{device.model}</div>
-                            </div>
-                            <div style={{
-                              padding: '4px 8px',
-                              background: device.status === 'online' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
-                              color: device.status === 'online' ? '#10b981' : '#6b7280',
-                              borderRadius: '20px',
-                              fontSize: '11px',
-                              fontWeight: '500'
-                            }}>
-                              {device.status}
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                              <div>
+                                <label style={{ color: '#94a3b8', fontSize: '11px' }}>Current Flow</label>
+                                <div style={{ color: 'white', fontSize: '13px' }}>{device.currentFlow || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label style={{ color: '#94a3b8', fontSize: '11px' }}>Today's Total</label>
+                                <div style={{ color: '#0ea5e9', fontSize: '13px' }}>{device.totalToday || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label style={{ color: '#94a3b8', fontSize: '11px' }}>Battery</label>
+                                <div style={{ color: device.battery && device.battery > 20 ? '#10b981' : '#ef4444', fontSize: '13px' }}>
+                                  {device.battery ? `${device.battery}%` : 'N/A'}
+                                </div>
+                              </div>
+                              <div>
+                                <label style={{ color: '#94a3b8', fontSize: '11px' }}>Connected Since</label>
+                                <div style={{ color: 'white', fontSize: '13px' }}>
+                                  {device.connectedSince ? new Date(device.connectedSince).toLocaleDateString() : 'Unknown'}
+                                </div>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                            <div>
-                              <label style={{ color: '#94a3b8', fontSize: '11px' }}>Current Flow</label>
-                              <div style={{ color: 'white', fontSize: '13px' }}>{device.currentFlow}</div>
-                            </div>
-                            <div>
-                              <label style={{ color: '#94a3b8', fontSize: '11px' }}>Today's Total</label>
-                              <div style={{ color: '#0ea5e9', fontSize: '13px' }}>{device.totalToday}</div>
-                            </div>
-                            <div>
-                              <label style={{ color: '#94a3b8', fontSize: '11px' }}>Battery</label>
-                              <div style={{ color: device.battery > 20 ? '#10b981' : '#ef4444', fontSize: '13px' }}>
-                                {device.battery}%
-                              </div>
-                            </div>
-                            <div>
-                              <label style={{ color: '#94a3b8', fontSize: '11px' }}>Connected Since</label>
-                              <div style={{ color: 'white', fontSize: '13px' }}>
-                                {new Date(device.connectedSince).toLocaleDateString()}
-                              </div>
-                            </div>
+                        ))
+                      ) : (
+                        /* User has linked devices property but no device data yet */
+                        <div style={{ 
+                          color: '#94a3b8', 
+                          textAlign: 'center', 
+                          padding: '2rem', 
+                          width: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '1rem'
+                        }}>
+                          <Smartphone size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
+                          <div>Devices are connected but device details are not available yet.</div>
+                          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                            Device information will appear here once synced with the mobile app.
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
                   ) : (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem' }}>
-                      No devices connected
+                    /* User has no linked devices */
+                    <div style={{ 
+                      color: '#94a3b8', 
+                      textAlign: 'center', 
+                      padding: '3rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '1rem'
+                    }}>
+                      <Smartphone size={64} style={{ opacity: 0.3 }} />
+                      <div style={{ fontSize: '1.1rem', fontWeight: '500' }}>
+                        No Devices Connected
+                      </div>
+                      <div style={{ fontSize: '0.9rem', opacity: 0.8, maxWidth: '400px' }}>
+                        This user hasn't connected any FlowSync devices yet. 
+                        Devices will appear here once linked to the mobile app.
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {activeTab === 'security' && (
+              {activeTab === 'profile' && selectedUser && (
                 <div style={{
                   background: 'rgba(30, 41, 59, 0.5)',
-                  borderRadius: '12px',
+                  borderRadius: '16px',
                   padding: '1.5rem',
-                  border: '1px solid rgba(148, 163, 184, 0.2)'
+                  border: '1px solid rgba(148, 163, 184, 0.15)'
                 }}>
-                  <h4 style={{ color: 'white', fontSize: '18px', fontWeight: '600', marginBottom: '1rem' }}>
-                    Security & Verification
-                  </h4>
-                  
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                  {/* Profile Header */}
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '1rem', 
+                    marginBottom: '1.5rem',
+                    paddingBottom: '1.5rem',
+                    borderBottom: '1px solid rgba(148, 163, 184, 0.1)'
+                  }}>
                     <div style={{
-                      padding: '1rem',
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      borderRadius: '10px',
-                      border: `1px solid ${selectedUser.isEmailVerified ? '#10b98140' : '#ef444440'}`
+                      width: '72px',
+                      height: '72px',
+                      borderRadius: '14px',
+                      background: `linear-gradient(135deg, ${getColorFromEmail(selectedUser.email)} 0%, ${getColorFromEmail(selectedUser.email)}80 100%)`,
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: '600',
+                      fontSize: '28px'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                        <Mail size={16} style={{ color: selectedUser.isEmailVerified ? '#10b981' : '#ef4444' }} />
-                        <span style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>Email Verification</span>
+                      {getInitials(selectedUser.fullName)}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <h3 style={{ 
+                        color: 'white', 
+                        fontSize: '1.5rem', 
+                        fontWeight: '600', 
+                        margin: '0 0 4px 0',
+                        letterSpacing: '-0.5px'
+                      }}>
+                        {selectedUser.fullName}
+                      </h3>
+                      <p style={{ 
+                        color: '#94a3b8', 
+                        fontSize: '14px', 
+                        margin: '0 0 12px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <Mail size={14} style={{ color: '#94a3b8' }} />
+                        {selectedUser.email}
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <div style={{
+                          padding: '4px 10px',
+                          background: 'rgba(148, 163, 184, 0.1)',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          color: '#94a3b8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          border: '1px solid rgba(148, 163, 184, 0.2)'
+                        }}>
+                          <Shield size={10} style={{ color: '#94a3b8' }} />
+                          {selectedUser.isEmailVerified ? 'Verified' : 'Unverified'}
+                        </div>
+                        
+                        <div style={{
+                          padding: '4px 10px',
+                          background: 'rgba(148, 163, 184, 0.1)',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          color: '#94a3b8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          border: '1px solid rgba(148, 163, 184, 0.2)'
+                        }}>
+                          <Wifi size={10} style={{ color: '#94a3b8' }} />
+                          {selectedUser.hasLinkedDevices ? 'Connected' : 'Offline'}
+                        </div>
+                        
+                        <div style={{
+                          padding: '4px 10px',
+                          background: 'rgba(148, 163, 184, 0.1)',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          color: '#94a3b8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          border: '1px solid rgba(148, 163, 184, 0.2)'
+                        }}>
+                          <Clock size={10} style={{ color: '#94a3b8' }} />
+                          {selectedUser.status === 'active' ? 'Active' : 'Inactive'}
+                        </div>
                       </div>
-                      <div style={{ color: selectedUser.isEmailVerified ? '#10b981' : '#ef4444', fontSize: '13px' }}>
-                        {selectedUser.isEmailVerified ? 'Verified' : 'Not Verified'}
+                    </div>
+                  </div>
+
+                  {/* Main Profile Sections */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                    
+                    {/* Left Column - Contact & Account */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      
+                      {/* Contact Info Card */}
+                      <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        border: '1px solid rgba(148, 163, 184, 0.1)'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          marginBottom: '1rem'
+                        }}>
+                          <User size={16} style={{ color: '#94a3b8' }} />
+                          <h4 style={{ 
+                            color: 'white', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            margin: 0
+                          }}>
+                            Contact Information
+                          </h4>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              background: 'rgba(148, 163, 184, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <Phone size={14} style={{ color: '#94a3b8' }} />
+                            </div>
+                            <div>
+                              <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Phone</div>
+                              <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
+                                {formatPhoneNumber(selectedUser.phoneNumber)}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {selectedUser.username && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                background: 'rgba(148, 163, 184, 0.08)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <User size={14} style={{ color: '#94a3b8' }} />
+                              </div>
+                              <div>
+                                <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Username</div>
+                                <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
+                                  {selectedUser.username}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {selectedUser.address && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                background: 'rgba(148, 163, 184, 0.08)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <MapPin size={14} style={{ color: '#94a3b8' }} />
+                              </div>
+                              <div>
+                                <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Address</div>
+                                <div style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
+                                  {selectedUser.address}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Account Details Card */}
+                      <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        border: '1px solid rgba(148, 163, 184, 0.1)'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          marginBottom: '1rem'
+                        }}>
+                          <Shield size={16} style={{ color: '#94a3b8' }} />
+                          <h4 style={{ 
+                            color: 'white', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            margin: 0
+                          }}>
+                            Account Details
+                          </h4>
+                        </div>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingBottom: '10px',
+                            borderBottom: '1px solid rgba(148, 163, 184, 0.1)'
+                          }}>
+                            <div style={{ color: '#94a3b8', fontSize: '12px' }}>Account Type</div>
+                            <div style={{ 
+                              color: '#cbd5e1', 
+                              fontSize: '12px',
+                              fontWeight: '500'
+                            }}>
+                              {selectedUser.isGmailAccount ? 'Google' : 'Email'}
+                            </div>
+                          </div>
+                          
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingBottom: '10px',
+                            borderBottom: '1px solid rgba(148, 163, 184, 0.1)'
+                          }}>
+                            <div style={{ color: '#94a3b8', fontSize: '12px' }}>Email Status</div>
+                            <div style={{ 
+                              color: '#cbd5e1', 
+                              fontSize: '12px',
+                              fontWeight: '500'
+                            }}>
+                              {selectedUser.isEmailVerified ? 'Verified' : 'Unverified'}
+                            </div>
+                          </div>
+                          
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingBottom: '10px',
+                            borderBottom: '1px solid rgba(148, 163, 184, 0.1)'
+                          }}>
+                            <div style={{ color: '#94a3b8', fontSize: '12px' }}>OTP Verification</div>
+                            <div style={{ 
+                              color: '#cbd5e1', 
+                              fontSize: '12px',
+                              fontWeight: '500'
+                            }}>
+                              {selectedUser.otpVerified ? 'Enabled' : 'Disabled'}
+                            </div>
+                          </div>
+                          
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <div style={{ color: '#94a3b8', fontSize: '12px' }}>User ID</div>
+                            <div style={{ 
+                              color: '#94a3b8', 
+                              fontSize: '11px',
+                              fontFamily: 'monospace'
+                            }}>
+                              {selectedUser.uid?.substring(0, 8)}...
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
-                    <div style={{
-                      padding: '1rem',
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      borderRadius: '10px',
-                      border: `1px solid ${selectedUser.otpVerified ? '#10b98140' : '#f59e0b40'}`
+                    {/* Right Column - Timeline & Stats */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      
+                      {/* Timeline Card */}
+                      <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        border: '1px solid rgba(148, 163, 184, 0.1)'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          marginBottom: '1rem'
+                        }}>
+                          <Clock size={16} style={{ color: '#94a3b8' }} />
+                          <h4 style={{ 
+                            color: 'white', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            margin: 0
+                          }}>
+                            Account Timeline
+                          </h4>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              background: 'rgba(148, 163, 184, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <Calendar size={14} style={{ color: '#94a3b8' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Account Created</div>
+                              <div style={{ color: 'white', fontSize: '13px', fontWeight: '500' }}>
+                                {formatDateTime(selectedUser.createdAt)}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              background: 'rgba(148, 163, 184, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <History size={14} style={{ color: '#94a3b8' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Last Login</div>
+                              <div style={{ color: 'white', fontSize: '13px', fontWeight: '500' }}>
+                                {selectedUser.lastLogin ? getTimeAgo(selectedUser.lastLogin) : 'Never'}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              background: 'rgba(148, 163, 184, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <RefreshCw size={14} style={{ color: '#94a3b8' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.5px' }}>Last Updated</div>
+                              <div style={{ color: 'white', fontSize: '13px', fontWeight: '500' }}>
+                                {formatDateTime(selectedUser.updatedAt)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Stats Card */}
+                      <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        border: '1px solid rgba(148, 163, 184, 0.1)'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          marginBottom: '1rem'
+                        }}>
+                          <Activity size={16} style={{ color: '#94a3b8' }} />
+                          <h4 style={{ 
+                            color: 'white', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            margin: 0
+                          }}>
+                            Quick Stats
+                          </h4>
+                        </div>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                          <div style={{
+                            background: 'rgba(148, 163, 184, 0.08)',
+                            borderRadius: '10px',
+                            padding: '12px',
+                            textAlign: 'center',
+                            border: '1px solid rgba(148, 163, 184, 0.15)'
+                          }}>
+                            <div style={{ 
+                              color: 'white', 
+                              fontSize: '16px', 
+                              fontWeight: '600',
+                              marginBottom: '4px'
+                            }}>
+                              {selectedUser.waterFlowData?.todayUsage 
+                                ? (selectedUser.waterFlowData.todayUsage / 1000).toFixed(1) 
+                                : '0.0'}
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: '10px', letterSpacing: '0.5px' }}>
+                              Water Usage
+                            </div>
+                          </div>
+                          
+                          <div style={{
+                            background: 'rgba(148, 163, 184, 0.08)',
+                            borderRadius: '10px',
+                            padding: '12px',
+                            textAlign: 'center',
+                            border: '1px solid rgba(148, 163, 184, 0.15)'
+                          }}>
+                            <div style={{ 
+                              color: 'white', 
+                              fontSize: '16px', 
+                              fontWeight: '600',
+                              marginBottom: '4px'
+                            }}>
+                              {selectedUser.waterFlowData?.currentFlowRate?.toFixed(1) || '0.0'}
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: '10px', letterSpacing: '0.5px' }}>
+                              Flow Rate
+                            </div>
+                          </div>
+                          
+                          <div style={{
+                            background: 'rgba(148, 163, 184, 0.08)',
+                            borderRadius: '10px',
+                            padding: '12px',
+                            textAlign: 'center',
+                            border: '1px solid rgba(148, 163, 184, 0.15)'
+                          }}>
+                            <div style={{ 
+                              color: 'white', 
+                              fontSize: '16px', 
+                              fontWeight: '600',
+                              marginBottom: '4px'
+                            }}>
+                              {selectedUser.alerts?.filter((a: any) => !a.read).length || 0}
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: '10px', letterSpacing: '0.5px' }}>
+                              Active Alerts
+                            </div>
+                          </div>
+                          
+                          <div style={{
+                            background: 'rgba(148, 163, 184, 0.08)',
+                            borderRadius: '10px',
+                            padding: '12px',
+                            textAlign: 'center',
+                            border: '1px solid rgba(148, 163, 184, 0.15)'
+                          }}>
+                            <div style={{ 
+                              color: 'white', 
+                              fontSize: '16px', 
+                              fontWeight: '600',
+                              marginBottom: '4px'
+                            }}>
+                              {selectedUser.hasLinkedDevices ? 'Yes' : 'No'}
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: '10px', letterSpacing: '0.5px' }}>
+                              Devices Linked
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* User ID Footer */}
+                  <div style={{ 
+                    marginTop: '1.5rem',
+                    paddingTop: '1rem',
+                    borderTop: '1px solid rgba(148, 163, 184, 0.1)',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}>
+                      User ID
+                    </div>
+                    <div style={{ 
+                      color: '#cbd5e1', 
+                      fontSize: '12px', 
+                      fontFamily: 'monospace',
+                      wordBreak: 'break-all'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                        <Key size={16} style={{ color: selectedUser.otpVerified ? '#10b981' : '#f59e0b' }} />
-                        <span style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>OTP Verification</span>
-                      </div>
-                      <div style={{ color: selectedUser.otpVerified ? '#10b981' : '#f59e0b', fontSize: '13px' }}>
-                        {selectedUser.otpVerified ? 'Enabled' : 'Disabled'}
-                      </div>
+                      {selectedUser.uid}
                     </div>
                   </div>
                 </div>
@@ -1814,7 +2258,7 @@ export default function DashboardPage() {
               alignItems: 'center'
             }}>
               <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                User ID: {selectedUser.uid}
+                User ID: {selectedUser.id || selectedUser.uid}
               </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button

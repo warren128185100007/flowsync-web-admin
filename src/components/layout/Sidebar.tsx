@@ -1,21 +1,18 @@
-// src/components/layout/Sidebar.tsx - WITH CSS MODULE IMPORT
 'use client';
 
 import { 
-  Home, User, Cpu, BellRing, Zap, Droplets, BarChart3, History, 
-  Users, Settings, Waves, Power, Menu, X, ChevronLeft, Shield, 
-  AlertTriangle, Key, Database, FileText, Server, Lock, LogOut, Terminal 
+  Home, User, Cpu, BellRing, Droplets, History, 
+  Users, Settings, LogOut, Menu, X, Crown, 
+  UserCog, Activity, BarChart3, Key, 
+  FileText, Shield
 } from 'lucide-react';
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { AdminAuthService } from '@/lib/admin-auth.service';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   isOpen: boolean;
-  activeSection: string;
   onSectionChange: (section: string) => void;
-  userRole: string;
   alertCount: number;
   onToggle?: () => void;
 }
@@ -24,17 +21,41 @@ type NavigationItem = {
   icon: React.ReactNode;
   label: string;
   section: string;
-  color: string;
+  path?: string;
   badge?: number;
   requiresSuperAdmin?: boolean;
-  path?: string;
+  isSuperAdminOnly?: boolean;
 };
 
-// Memoized navigation item component
+type UserRole = 'super_admin' | 'admin';
+type UserInfo = {
+  title: string;
+  gradient: string;
+  short: string;
+  icon: React.ReactNode;
+  badge: string;
+};
+
+const USER_INFO: Record<UserRole, UserInfo> = {
+  'super_admin': { 
+    title: 'Super Administrator', 
+    gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)', 
+    short: 'SA',
+    icon: <Crown size={12} />,
+    badge: 'SUPER ADMIN'
+  },
+  'admin': { 
+    title: 'Administrator', 
+    gradient: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+    short: 'ADM',
+    icon: <Shield size={12} />,
+    badge: 'ADMIN'
+  }
+};
+
 const NavItem = memo(({ 
   item, 
   isActive, 
-  isCollapsed, 
   isHovered,
   userRole,
   onClick,
@@ -43,13 +64,16 @@ const NavItem = memo(({
 }: { 
   item: NavigationItem;
   isActive: boolean;
-  isCollapsed: boolean;
   isHovered: boolean;
-  userRole: string;
+  userRole: UserRole;
   onClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) => {
+  const hasAccess = !item.requiresSuperAdmin || userRole === 'super_admin';
+  
+  if (!hasAccess) return null;
+
   return (
     <div className={styles.navItem}>
       <button
@@ -57,58 +81,41 @@ const NavItem = memo(({
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         className={`${styles.navButton} ${isActive ? styles.active : ''}`}
-        style={{
-          '--item-color': item.color,
-        } as React.CSSProperties}
+        disabled={item.requiresSuperAdmin && userRole !== 'super_admin'}
+        title={item.label}
       >
-        {/* Active indicator */}
-        {isActive && (
-          <div className={styles.activeIndicator} />
-        )}
+        {isActive && <div className={styles.activeIndicator} />}
         
-        {/* Icon */}
         <div className={styles.navIconContainer}>
           {item.icon}
-          {item.badge && item.badge > 0 && isCollapsed && (
-            <div className={styles.superAdminDot} />
+          {item.isSuperAdminOnly && userRole === 'super_admin' && (
+            <div className={styles.superAdminIconBadge}>
+              <Crown size={10} />
+            </div>
+          )}
+          {item.badge && item.badge > 0 && (
+            <div className={styles.badgeDot} />
           )}
         </div>
         
-        {/* Label and badge (expanded only) */}
-        {!isCollapsed && (
-          <div className={styles.navContent}>
-            <div className={styles.navLabel}>
-              <span>{item.label}</span>
-              {item.requiresSuperAdmin && (
-                <Lock size={12} style={{ color: '#ef4444' }} />
-              )}
-            </div>
-            
-            {item.badge && item.badge > 0 && (
-              <span className={styles.navBadge}>
-                {item.badge > 99 ? '99+' : item.badge}
-              </span>
-            )}
-          </div>
-        )}
+        <div className={styles.navContent}>
+          <span className={styles.navLabel}>{item.label}</span>
+          {item.badge && item.badge > 0 && (
+            <span className={styles.navBadge}>
+              {item.badge > 99 ? '99+' : item.badge}
+            </span>
+          )}
+        </div>
       </button>
 
-      {/* Tooltip for collapsed state */}
-      {isCollapsed && (isHovered || isActive) && (
+      {isHovered && (
         <div className={styles.navTooltip}>
           {item.label}
-          {item.badge && item.badge > 0 && (
-            <span style={{
-              marginLeft: '6px',
-              background: item.color,
-              color: 'white',
-              fontSize: '10px',
-              fontWeight: '700',
-              padding: '1px 4px',
-              borderRadius: '8px',
-            }}>
-              {item.badge}
-            </span>
+          {item.isSuperAdminOnly && userRole === 'super_admin' && (
+            <div className={styles.tooltipSuperAdmin}>
+              <Crown size={10} />
+              <span>Super Admin</span>
+            </div>
           )}
         </div>
       )}
@@ -120,42 +127,76 @@ NavItem.displayName = 'NavItem';
 
 export default function Sidebar({ 
   isOpen, 
-  activeSection, 
   onSectionChange, 
-  userRole, 
   alertCount,
   onToggle 
 }: SidebarProps) {
-  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
-  const [shutdownConfirmed, setShutdownConfirmed] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [adminEmail, setAdminEmail] = useState<string>('admin@flowsync.com');
+  const [userRole, setUserRole] = useState<UserRole>('admin');
+  const [adminEmail, setAdminEmail] = useState('admin@flowsync.com');
   const router = useRouter();
   const pathname = usePathname();
 
-  // Get user email from localStorage
+  // Load user data
   useEffect(() => {
-    const userData = localStorage.getItem('admin_user');
-    if (userData) {
+    const loadUserData = () => {
       try {
-        const user = JSON.parse(userData);
-        setAdminEmail(user.email || 'admin@flowsync.com');
+        const localStorageUser = localStorage.getItem('admin_user');
+        if (localStorageUser) {
+          const user = JSON.parse(localStorageUser);
+          setAdminEmail(user.email || 'admin@flowsync.com');
+          
+          let role: string = user.role || user.userType || 'admin';
+          if (role === 'super-admin') role = 'super_admin';
+          
+          setUserRole((role === 'super_admin' ? 'super_admin' : 'admin'));
+          return;
+        }
+
+        const getCookie = (name: string) => {
+          const value = `; ${document.cookie}`;
+          const parts = value.split(`; ${name}=`);
+          if (parts.length === 2) return parts.pop()?.split(';').shift();
+        };
+
+        const userCookie = getCookie('admin_user');
+        if (userCookie) {
+          const user = JSON.parse(decodeURIComponent(userCookie));
+          setAdminEmail(user.email || 'admin@flowsync.com');
+          
+          let role: string = user.role;
+          if (role === 'super-admin') role = 'super_admin';
+          
+          setUserRole((role === 'super_admin' ? 'super_admin' : 'admin'));
+        }
       } catch (error) {
-        // Silent fail
+        console.error('Error loading user data:', error);
       }
-    }
+    };
+    
+    loadUserData();
+    
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'admin_user') loadUserData();
+    };
+    
+    const handleAdminUpdate = () => loadUserData();
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('admin-updated', handleAdminUpdate);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('admin-updated', handleAdminUpdate);
+    };
   }, []);
 
-  // Handle mobile responsiveness
+  // Handle responsiveness
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (mobile) {
-        setIsCollapsed(false);
-      }
     };
     
     checkMobile();
@@ -163,200 +204,120 @@ export default function Sidebar({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Optimized active check
-  const getIsActive = useCallback((item: NavigationItem): boolean => {
-    if (!item.path || !pathname) return false;
+  // Navigation items based on role
+  const navigationItems = useMemo(() => {
+    const items: NavigationItem[] = [
+      { 
+        icon: <Home size={20} />, 
+        label: 'Dashboard', 
+        section: 'dashboard', 
+        path: '/dashboard' 
+      },
+      {
+        icon: <Users size={20} />,
+        label: 'User Management',
+        section: 'users', 
+        path: '/dashboard/users'
+      },
+      {
+        icon: <User size={20} />, 
+        label: 'My Profile', 
+        section: 'profile', 
+        path: '/dashboard/profile' 
+      },
+      {
+        icon: <BellRing size={20} />, 
+        label: 'Alerts', 
+        section: 'alerts', 
+        badge: alertCount,
+        path: '/dashboard/alerts' 
+      },
+      {
+        icon: <Droplets size={20} />, 
+        label: 'Water Usage', 
+        section: 'usage', 
+        path: '/dashboard/usage' 
+      },
+      {
+        icon: <BarChart3 size={20} />, 
+        label: 'Analytics', 
+        section: 'analytics', 
+        path: '/dashboard/analytics' 
+      },
+      {
+        icon: <History size={20} />, 
+        label: 'Activity Logs', 
+        section: 'logs', 
+        path: '/dashboard/logs' 
+      },
+      {
+        icon: <Cpu size={20} />,
+        label: 'Devices',
+        section: 'devices', 
+        path: '/dashboard/devices' 
+      },
+      {
+        icon: <Settings size={20} />, 
+        label: 'System Settings', 
+        section: 'settings', 
+        path: '/dashboard/settings' 
+      },
+    ];
+
+    // Super admin only items
+    if (userRole === 'super_admin') {
+      items.push(
+        {
+          icon: <UserCog size={20} />,
+          label: 'Admin Management',
+          section: 'admin', 
+          requiresSuperAdmin: true,
+          isSuperAdminOnly: true,
+          path: '/dashboard/admin' 
+        },
+        {
+          icon: <Key size={20} />, 
+          label: 'Access Control', 
+          section: 'access-control', 
+          requiresSuperAdmin: true,
+          isSuperAdminOnly: true,
+          path: '/dashboard/access-control' 
+        },
+        {
+          icon: <FileText size={20} />, 
+          label: 'Audit Logs', 
+          section: 'audit-logs', 
+          requiresSuperAdmin: true,
+          isSuperAdminOnly: true,
+          path: '/dashboard/audit-logs' 
+        }
+        // Database and System Health items have been removed
+      );
+    }
+
+    return items;
+  }, [userRole, alertCount]);
+
+  const handleItemClick = useCallback((item: NavigationItem) => {
+    if (item.requiresSuperAdmin && userRole !== 'super_admin') return;
     
-    if (item.path === '/dashboard') {
-      return pathname === '/dashboard' || pathname === '/';
-    }
-    
-    return pathname.startsWith(item.path);
-  }, [pathname]);
+    onSectionChange(item.section);
+    if (item.path) router.push(item.path);
+  }, [userRole, router, onSectionChange]);
 
-  // Navigation items
-  const baseNavigationItems: NavigationItem[] = [
-    { 
-      icon: <Home size={20} />, 
-      label: 'Dashboard', 
-      section: 'dashboard', 
-      color: '#0ea5e9',
-      path: '/dashboard' 
-    },
-    { 
-      icon: <User size={20} />, 
-      label: 'My Profile', 
-      section: 'profile', 
-      color: '#8b5cf6',
-      path: '/dashboard/profile' 
-    },
-    { 
-      icon: <Cpu size={20} />, 
-      label: 'Devices', 
-      section: 'devices', 
-      color: '#10b981',
-      path: '/dashboard/devices' 
-    },
-    { 
-      icon: <BellRing size={20} />, 
-      label: 'Alerts', 
-      section: 'alerts', 
-      color: '#f59e0b', 
-      badge: alertCount,
-      path: '/dashboard/alerts' 
-    },
-    { 
-      icon: <Zap size={20} />, 
-      label: 'Control Panel', 
-      section: 'control', 
-      color: '#f97316',
-      path: '/dashboard/control' 
-    },
-    { 
-      icon: <Droplets size={20} />, 
-      label: 'Water Usage', 
-      section: 'usage', 
-      color: '#3b82f6',
-      path: '/dashboard/usage' 
-    },
-    { 
-      icon: <BarChart3 size={20} />, 
-      label: 'Analytics', 
-      section: 'analytics', 
-      color: '#6366f1',
-      path: '/dashboard/analytics' 
-    },
-    { 
-      icon: <History size={20} />, 
-      label: 'Logs History', 
-      section: 'logs', 
-      color: '#8b5cf6',
-      path: '/dashboard/logs' 
-    },
-  ];
-
-  const adminNavigationItems: NavigationItem[] = [
-    { 
-      icon: <Users size={20} />, 
-      label: 'User Management', 
-      section: 'users', 
-      color: '#ec4899',
-      path: '/dashboard/users' 
-    },
-    { 
-      icon: <Settings size={20} />, 
-      label: 'System Settings', 
-      section: 'settings', 
-      color: '#6b7280',
-      path: '/dashboard/settings' 
-    }
-  ];
-
-  const superAdminNavigationItems: NavigationItem[] = [
-    { 
-      icon: <Shield size={20} />, 
-      label: 'Admin Panel', 
-      section: 'admin', 
-      color: '#8b5cf6', 
-      requiresSuperAdmin: true,
-      path: '/dashboard/admin' 
-    },
-    { 
-      icon: <Terminal size={20} />, 
-      label: 'Super Admin', 
-      section: 'super-admin', 
-      color: '#ef4444', 
-      requiresSuperAdmin: true,
-      path: '/auth/super-admin' 
-    },
-    { 
-      icon: <Key size={20} />, 
-      label: 'Access Control', 
-      section: 'access-control', 
-      color: '#f59e0b', 
-      requiresSuperAdmin: true,
-      path: '/dashboard/access-control' 
-    },
-    { 
-      icon: <Database size={20} />, 
-      label: 'Database', 
-      section: 'database', 
-      color: '#10b981', 
-      requiresSuperAdmin: true,
-      path: '/dashboard/database' 
-    },
-    { 
-      icon: <FileText size={20} />, 
-      label: 'Audit Logs', 
-      section: 'audit-logs', 
-      color: '#6b7280', 
-      requiresSuperAdmin: true,
-      path: '/dashboard/audit-logs' 
-    },
-    { 
-      icon: <Server size={20} />, 
-      label: 'System Health', 
-      section: 'system-health', 
-      color: '#ef4444', 
-      requiresSuperAdmin: true,
-      path: '/dashboard/system-health' 
-    },
-  ];
-
-  // Combine items
-  let navigationItems = [...baseNavigationItems];
-  if (userRole === 'admin' || userRole === 'super-admin') {
-    navigationItems = [...navigationItems, ...adminNavigationItems];
-  }
-  if (userRole === 'super-admin') {
-    navigationItems = [...navigationItems, ...superAdminNavigationItems];
-  }
-
-  const userInfo = {
-    'super-admin': { 
-      title: 'Super Administrator', 
-      color: '#8b5cf6', 
-      gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)', 
-      short: 'SA',
-      icon: <Shield size={14} />
-    },
-    'admin': { 
-      title: 'Administrator', 
-      color: '#8b5cf6', 
-      gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)', 
-      short: 'ADM',
-      icon: <Shield size={14} />
-    },
-    'viewer': { 
-      title: 'Viewer', 
-      color: '#6b7280', 
-      gradient: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)', 
-      short: 'VW',
-      icon: <User size={14} />
-    }
-  };
-
-  const user = userInfo[userRole as keyof typeof userInfo] || userInfo.viewer;
-
-  // Optimized logout
-  const handleLogout = useCallback(async () => {
+  const handleLogout = useCallback(() => {
+    document.cookie = 'admin_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
     localStorage.removeItem('admin_user');
-    await AdminAuthService.superAdminLogout();
     router.push('/auth/super-admin');
   }, [router]);
 
-  // Optimized navigation
-  const handleItemClick = useCallback((item: NavigationItem) => {
-    if (item.requiresSuperAdmin && userRole !== 'super-admin') return;
-    
-    onSectionChange(item.section);
-    if (item.path) {
-      router.push(item.path);
-    }
-  }, [userRole, router, onSectionChange]);
+  const getIsActive = useCallback((item: NavigationItem) => {
+    if (!item.path || !pathname) return false;
+    if (item.path === '/dashboard') return pathname === '/dashboard' || pathname === '/';
+    return pathname.startsWith(item.path);
+  }, [pathname]);
 
-  // Mobile sidebar button
-  if (!isOpen && isMobile) {
+  if (isMobile && !isOpen) {
     return (
       <button 
         onClick={onToggle}
@@ -370,17 +331,17 @@ export default function Sidebar({
 
   if (isMobile && !isOpen) return null;
 
+  const user = USER_INFO[userRole];
+
   return (
     <>
       <div className={`
         ${styles.container} 
         ${isOpen ? styles.open : ''}
-        ${isCollapsed ? styles.collapsed : ''}
         ${isMobile ? styles.mobile : ''}
       `}>
         
         <div className={styles.content}>
-          {/* Mobile Close Button */}
           {isMobile && (
             <button 
               onClick={onToggle}
@@ -391,62 +352,57 @@ export default function Sidebar({
             </button>
           )}
 
-          {/* Logo Section - UPDATED */}
+          {/* Centered Logo Section */}
           <div className={styles.logoSection}>
             <div className={styles.logoContainer}>
               <div className={styles.logoIcon}>
-                {/* Flowsync Logo - Original Colors */}
                 <div className={styles.logoImageContainer}>
                   <img
                     src="/Flowsync.png"
                     alt="FlowSync"
                     className={styles.logoImage}
                     onError={(e) => {
-                      console.error('Logo failed to load');
                       e.currentTarget.style.display = 'none';
-                      const fallback = document.createElement('div');
-                      fallback.innerHTML = `
-                        <div style="
-                          width: 100%;
-                          height: 100%;
-                          display: flex;
-                          align-items: center;
-                          justify-content: center;
-                          color: white;
-                        ">
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 2v20M12 2l4 4M12 2l-4 4M12 22l4-4M12 22l-4-4"/>
-                          </svg>
-                        </div>
-                      `;
-                      e.currentTarget.parentElement?.appendChild(fallback);
+                      const fallback = e.currentTarget.parentElement;
+                      if (fallback) {
+                        fallback.innerHTML = `
+                          <div style="
+                            width: 40px;
+                            height: 40px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: white;
+                            font-weight: bold;
+                            font-size: 14px;
+                          ">
+                            FS
+                          </div>
+                        `;
+                      }
                     }}
                   />
                 </div>
               </div>
-              
-              {!isCollapsed && (
-                <div className={styles.logoText}>
-                  {/* REMOVED: FlowSync title */}
-                  <p className={styles.logoSubtitle}>Admin Portal</p>
-                </div>
-              )}
+            </div>
+            
+            {/* Role badge centered below logo */}
+            <div className={styles.roleBadgeContainer}>
+              <div className={styles.roleBadge} style={{ background: user.gradient }}>
+                {user.icon}
+                <span>{user.badge}</span>
+              </div>
             </div>
 
-            {/* Navigation Items */}
             <nav className={styles.navigation}>
               {navigationItems.map((item) => {
                 const isActive = getIsActive(item);
-                const hasAccess = !item.requiresSuperAdmin || (item.requiresSuperAdmin && userRole === 'super-admin');
                 
-                if (!hasAccess) return null;
-
                 return (
                   <NavItem
                     key={item.section}
                     item={item}
                     isActive={isActive}
-                    isCollapsed={isCollapsed}
                     isHovered={hoveredItem === item.section}
                     userRole={userRole}
                     onClick={() => handleItemClick(item)}
@@ -458,106 +414,45 @@ export default function Sidebar({
             </nav>
           </div>
 
-          {/* Action Buttons */}
           <div className={styles.actionButtons}>
             <button 
               onClick={handleLogout}
               className={styles.logoutButton}
+              title="Logout"
             >
               <LogOut size={16} />
-              {!isCollapsed && <span>Logout</span>}
-            </button>
-
-            <button 
-              onClick={() => setShowEmergencyModal(true)}
-              className={styles.emergencyButton}
-              style={{
-                background: shutdownConfirmed 
-                  ? 'rgba(16, 185, 129, 0.08)' 
-                  : 'rgba(239, 68, 68, 0.08)',
-                borderColor: shutdownConfirmed 
-                  ? 'rgba(16, 185, 129, 0.2)' 
-                  : 'rgba(239, 68, 68, 0.2)',
-                color: shutdownConfirmed ? '#10b981' : '#ef4444',
-              }}
-            >
-              <Power size={16} />
-              {!isCollapsed && (
-                <span>{shutdownConfirmed ? 'Complete' : 'Emergency'}</span>
-              )}
+              <span>Logout</span>
             </button>
           </div>
 
-          {/* User Info */}
           <div className={styles.userSection}>
             <div className={styles.userCard}>
               <div 
                 className={styles.userAvatar}
                 style={{ background: user.gradient }}
               >
-                {isCollapsed ? user.short : userRole.charAt(0).toUpperCase()}
+                {user.short}
+                {userRole === 'super_admin' && (
+                  <div className={styles.superAdminCrown}>👑</div>
+                )}
               </div>
               
-              {!isCollapsed && (
-                <div className={styles.userInfo}>
-                  <div className={styles.userName}>{user.title}</div>
-                  <div className={styles.userEmail}>{adminEmail}</div>
+              <div className={styles.userInfo}>
+                <div className={styles.userName}>
+                  {user.title}
                 </div>
-              )}
+                <div className={styles.userEmail}>{adminEmail}</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Mobile Overlay */}
       {isMobile && isOpen && (
         <div 
           onClick={onToggle}
           className={styles.mobileOverlay}
         />
-      )}
-
-      {/* Emergency Modal */}
-      {showEmergencyModal && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContainer}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalIcon}>
-                <AlertTriangle size={24} color="white" />
-              </div>
-              <div>
-                <h3 className={styles.modalTitle}>Emergency Shutdown</h3>
-                <p className={styles.modalSubtitle}>Critical system action</p>
-              </div>
-            </div>
-            
-            <div className={styles.modalContent}>
-              <div className={styles.modalWarningBox}>
-                <p className={styles.modalText}>
-                  ⚠️ This action cannot be undone. System will be stopped immediately.
-                </p>
-              </div>
-            </div>
-            
-            <div className={styles.modalActions}>
-              <button 
-                onClick={() => setShowEmergencyModal(false)}
-                className={styles.modalButton}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={() => {
-                  setShutdownConfirmed(true);
-                  setShowEmergencyModal(false);
-                }}
-                className={styles.modalButtonDanger}
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </>
   );
